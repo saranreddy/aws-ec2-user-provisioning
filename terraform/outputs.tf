@@ -18,7 +18,7 @@ output "users_created" {
 
 output "instances_provisioned" {
   description = "List of instances where users were provisioned"
-  value = var.instance_ids
+  value       = var.instance_ids
 }
 
 output "ssh_connection_info" {

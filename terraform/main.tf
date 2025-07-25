@@ -17,7 +17,7 @@ data "local_file" "users_config" {
 # Generate SSH key pairs for each user
 resource "tls_private_key" "user_keys" {
   for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
-  
+
   algorithm = "RSA"
   rsa_bits  = 4096
 }
@@ -25,20 +25,20 @@ resource "tls_private_key" "user_keys" {
 # Store private keys locally (these will be emailed to users)
 resource "local_file" "private_keys" {
   for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
-  
+
   filename = "${path.module}/keys/${each.key}_private_key.pem"
   content  = tls_private_key.user_keys[each.key].private_key_pem
-  
+
   file_permission = "0600"
 }
 
 # Store public keys locally
 resource "local_file" "public_keys" {
   for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
-  
+
   filename = "${path.module}/keys/${each.key}_public_key.pub"
   content  = tls_private_key.user_keys[each.key].public_key_openssh
-  
+
   file_permission = "0644"
 }
 
@@ -46,21 +46,21 @@ resource "local_file" "public_keys" {
 resource "local_file" "keys_directory" {
   filename = "${path.module}/keys/.gitkeep"
   content  = ""
-  
+
   file_permission = "0644"
 }
 
 # Provision users on each EC2 instance
 resource "null_resource" "provision_users" {
   for_each = { for instance_id in var.instance_ids : instance_id => instance_id }
-  
+
   triggers = {
     # Trigger when user list changes or when keys are regenerated
-    users_hash = md5(data.local_file.users_config.content)
-    keys_hash  = md5(join("", [for key in tls_private_key.user_keys : key.private_key_pem]))
+    users_hash  = md5(data.local_file.users_config.content)
+    keys_hash   = md5(join("", [for key in tls_private_key.user_keys : key.private_key_pem]))
     instance_id = each.value
   }
-  
+
   # Validate that instance has public IP
   lifecycle {
     precondition {
@@ -68,7 +68,7 @@ resource "null_resource" "provision_users" {
       error_message = "Instance ${each.value} does not have a public IP address. Please ensure the instance has a public IP or use a bastion host."
     }
   }
-  
+
   connection {
     type        = "ssh"
     host        = data.aws_instance.instance[each.key].public_ip
@@ -77,7 +77,7 @@ resource "null_resource" "provision_users" {
     timeout     = "5m"
     agent       = false
   }
-  
+
   provisioner "remote-exec" {
     inline = [
       "echo 'Starting user provisioning on instance ${each.value}'",
@@ -85,7 +85,7 @@ resource "null_resource" "provision_users" {
       "sudo yum install -y openssh-clients || true"
     ]
   }
-  
+
   # Create users and add SSH keys
   provisioner "remote-exec" {
     inline = concat(
@@ -110,14 +110,14 @@ resource "null_resource" "provision_users" {
 
 # Data source to get instance information
 data "aws_instance" "instance" {
-  for_each = { for instance_id in var.instance_ids : instance_id => instance_id }
+  for_each    = { for instance_id in var.instance_ids : instance_id => instance_id }
   instance_id = each.value
 }
 
 # Validate SSH private key file exists
 data "local_file" "ssh_private_key" {
   filename = var.ssh_private_key_path
-  
+
   lifecycle {
     precondition {
       condition     = fileexists(var.ssh_private_key_path)
@@ -158,11 +158,11 @@ output "provisioned_instances" {
 output "provisioning_summary" {
   description = "Summary of user provisioning"
   value = {
-    total_users    = length(yamldecode(data.local_file.users_config.content).users)
+    total_users     = length(yamldecode(data.local_file.users_config.content).users)
     total_instances = length(var.instance_ids)
     users = [for user in yamldecode(data.local_file.users_config.content).users : {
-      username = user.username
-      email    = user.email
+      username  = user.username
+      email     = user.email
       full_name = user.full_name
     }]
     instances = var.instance_ids
