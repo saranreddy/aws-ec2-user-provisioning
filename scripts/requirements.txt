@@ -1,0 +1,8 @@
+# Python dependencies for AWS EC2 User Provisioning
+# Install with: pip install -r requirements.txt
+
+# YAML parsing
+PyYAML>=6.0
+
+# Optional: For enhanced email features
+# email-validator>=2.0  # Uncomment if you want email validation 
