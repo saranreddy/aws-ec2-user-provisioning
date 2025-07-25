@@ -78,9 +78,14 @@ class SSHKeyEmailer:
             output_file = os.path.join(terraform_dir, 'terraform_output.json')
             if os.path.exists(output_file):
                 with open(output_file, 'r') as file:
-                    return json.load(file)
+                    data = json.load(file)
+                    # Extract user_private_keys from the output
+                    if 'user_private_keys' in data:
+                        return data['user_private_keys']['value']
+                    else:
+                        print("Warning: No user_private_keys found in terraform output")
             
-            # If no output file, try to read from keys directory
+            # If no output file or no user keys, try to read from keys directory
             keys_dir = os.path.join(terraform_dir, 'keys')
             if not os.path.exists(keys_dir):
                 print(f"Error: Keys directory '{keys_dir}' not found.")
@@ -108,6 +113,11 @@ class SSHKeyEmailer:
                         'public_key': public_key
                     }
             
+            if not keys_data:
+                print("Error: No SSH keys found in keys directory.")
+                print("Please run 'terraform apply' first to generate SSH keys.")
+                sys.exit(1)
+                
             return keys_data
             
         except Exception as e:

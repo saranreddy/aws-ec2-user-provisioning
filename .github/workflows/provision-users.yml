@@ -23,13 +23,13 @@ on:
         default: true
         type: boolean
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - 'users.yaml'
       - 'terraform/**'
       - '.github/workflows/**'
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - 'users.yaml'
       - 'terraform/**'
@@ -84,7 +84,7 @@ jobs:
     name: Provision Users on EC2 Instances
     needs: validate
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     
     steps:
       - name: Checkout code
@@ -111,6 +111,11 @@ jobs:
           echo "instance_ids=$INSTANCE_IDS_JSON" >> $GITHUB_OUTPUT
           echo "Parsed instance IDs: $INSTANCE_IDS_JSON"
           
+      - name: Create Keys Directory
+        run: |
+          cd terraform
+          mkdir -p keys
+          
       - name: Terraform Init
         run: |
           cd terraform
@@ -120,23 +125,40 @@ jobs:
         id: plan
         run: |
           cd terraform
-          terraform plan \
-            -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
-            -var="aws_region=${{ github.event.inputs.aws_region || 'us-west-2' }}" \
-            -var="dry_run=${{ github.event.inputs.dry_run || false }}" \
-            -out=tfplan
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "Running in dry-run mode - no actual changes will be made"
+            terraform plan \
+              -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
+              -var="aws_region=${{ github.event.inputs.aws_region || 'us-west-2' }}" \
+              -var="dry_run=true" \
+              -detailed-exitcode
+          else
+            terraform plan \
+              -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
+              -var="aws_region=${{ github.event.inputs.aws_region || 'us-west-2' }}" \
+              -var="dry_run=false" \
+              -out=tfplan
+          fi
         continue-on-error: true
         
       - name: Show Terraform Plan
         run: |
           cd terraform
-          terraform show tfplan || echo "No plan to show (possibly dry run or no changes)"
+          if [ -f "tfplan" ]; then
+            terraform show tfplan
+          else
+            echo "No plan file found (dry run mode or no changes)"
+          fi
           
       - name: Terraform Apply
-        if: github.event.inputs.dry_run != 'true'
+        if: github.event.inputs.dry_run != 'true' && github.event.inputs.dry_run != true
         run: |
           cd terraform
-          terraform apply -auto-approve tfplan
+          if [ -f "tfplan" ]; then
+            terraform apply -auto-approve tfplan
+          else
+            echo "No plan file found - skipping apply"
+          fi
           
       - name: Terraform Output
         run: |
@@ -165,9 +187,10 @@ jobs:
     needs: provision-users
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') &&
+      (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
       github.event.inputs.send_emails != 'false' &&
-      github.event.inputs.dry_run != 'true'
+      github.event.inputs.dry_run != 'true' &&
+      github.event.inputs.dry_run != true
     
     steps:
       - name: Checkout code
@@ -198,16 +221,11 @@ jobs:
             --smtp-port "${{ secrets.SMTP_PORT || '587' }}" \
             --users-file users.yaml \
             --terraform-dir terraform
-        env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
 
   dry-run-test:
     name: Dry Run Test
     runs-on: ubuntu-latest
-    if: github.event.inputs.dry_run == 'true'
+    if: github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true
     
     steps:
       - name: Checkout code

@@ -8,7 +8,7 @@ output "provisioning_complete" {
 output "users_created" {
   description = "List of users that were created"
   value = {
-    for username, user in local.users : username => {
+    for username, user in yamldecode(data.local_file.users_config.content).users : username => {
       username  = user.username
       email     = user.email
       full_name = user.full_name
