@@ -42,7 +42,7 @@ env:
 jobs:
   validate:
     name: Validate Terraform Configuration
-    runs-on: tmp-priv-docker4
+    runs-on: docker
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -106,7 +106,7 @@ jobs:
   provision-users:
     name: Provision Users on EC2 Instances
     needs: validate
-    runs-on: tmp-priv-docker4
+    runs-on: docker
     if: github.event_name == 'workflow_dispatch'
     
     steps:
@@ -313,7 +313,7 @@ jobs:
   send-email-keys:
     name: Send SSH Keys to Users
     needs: provision-users
-    runs-on: tmp-priv-docker4
+    runs-on: docker
     if: |
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.send_emails != 'false' &&
@@ -347,7 +347,7 @@ jobs:
 
   dry-run-test:
     name: Dry Run Test
-    runs-on: tmp-priv-docker4
+    runs-on: docker
     if: github.event_name == 'workflow_dispatch' && (github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true)
     
     steps:
