@@ -107,7 +107,7 @@ jobs:
     name: Provision Users on EC2 Instances
     needs: validate
     runs-on: tmp-priv-docker4
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.event_name == 'workflow_dispatch'
     
     steps:
       - name: Checkout code
@@ -168,7 +168,19 @@ jobs:
       - name: Parse Instance IDs
         id: parse-instances
         run: |
-          INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
+          # Check if this is a manual workflow dispatch with instance IDs
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.instance_ids }}" ]; then
+            INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
+            echo "Using manually provided instance IDs: $INSTANCE_IDS"
+          else
+            # For automatic triggers (push/PR), use a default or placeholder
+            # You can modify this to use a default instance ID or skip the job
+            echo "No instance IDs provided for automatic trigger"
+            echo "This workflow requires manual trigger with instance IDs"
+            echo "Please run this workflow manually and provide instance IDs"
+            exit 1
+          fi
+          
           # Convert comma-separated string to JSON array
           INSTANCE_IDS_JSON=$(echo "$INSTANCE_IDS" | tr ',' '\n' | jq -R . | jq -s .)
           echo "instance_ids=$INSTANCE_IDS_JSON" >> $GITHUB_OUTPUT
@@ -250,7 +262,7 @@ jobs:
     needs: provision-users
     runs-on: tmp-priv-docker4
     if: |
-      (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      github.event_name == 'workflow_dispatch' &&
       github.event.inputs.send_emails != 'false' &&
       github.event.inputs.dry_run != 'true' &&
       github.event.inputs.dry_run != true
@@ -283,7 +295,7 @@ jobs:
   dry-run-test:
     name: Dry Run Test
     runs-on: tmp-priv-docker4
-    if: github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true)
     
     steps:
       - name: Checkout code
