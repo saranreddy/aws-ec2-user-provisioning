@@ -197,25 +197,46 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.aws_region || 'us-west-2' }}
+          role-duration-seconds: 3600
           
       - name: Verify AWS Credentials
         run: |
-          echo "Verifying AWS credentials..."
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "❌ AWS credentials are not set"
-            echo "Please check your GitHub secrets: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+          echo "=== AWS Credentials Verification ==="
+          
+          # Check if credentials are set
+          if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+            echo "❌ AWS_ACCESS_KEY_ID is not set"
+            echo "Please add AWS_ACCESS_KEY_ID to your GitHub repository secrets"
             exit 1
           fi
           
-          # Test AWS credentials
+          if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "❌ AWS_SECRET_ACCESS_KEY is not set"
+            echo "Please add AWS_SECRET_ACCESS_KEY to your GitHub repository secrets"
+            exit 1
+          fi
+          
+          echo "✅ AWS credentials are set"
+          echo "AWS Region: $AWS_DEFAULT_REGION"
+          echo "Access Key ID: ${AWS_ACCESS_KEY_ID:0:8}..."
+          
+          # Test AWS credentials with detailed error handling
+          echo "Testing AWS credentials..."
           aws sts get-caller-identity || {
-            echo "❌ AWS credentials are invalid"
+            echo "❌ AWS credentials are invalid or expired"
+            echo "Possible issues:"
+            echo "1. Access key or secret key is incorrect"
+            echo "2. Credentials have expired"
+            echo "3. Insufficient permissions (need EC2 access)"
+            echo "4. Wrong AWS region"
+            echo ""
             echo "Please verify your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets"
             echo "Make sure the credentials have proper permissions for EC2 access"
             exit 1
           }
           
           echo "✅ AWS credentials verified successfully"
+          echo "Caller Identity:"
           aws sts get-caller-identity
           
       - name: Parse Instance IDs
