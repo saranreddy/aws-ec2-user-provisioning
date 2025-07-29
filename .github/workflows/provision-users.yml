@@ -138,20 +138,53 @@ jobs:
             SUDO="sudo"
           fi
           
-          # Update package lists
-          $SUDO apt-get update || true
-          
-          # Install packages with error handling
-          $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli || {
-            echo "Some packages failed to install, checking what's available..."
-            # Check what's already available
-            command -v curl >/dev/null 2>&1 || echo "curl not available"
-            command -v unzip >/dev/null 2>&1 || echo "unzip not available"
-            command -v python3 >/dev/null 2>&1 || echo "python3 not available"
-            command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
-            command -v jq >/dev/null 2>&1 || echo "jq not available"
-            command -v awscli >/dev/null 2>&1 || echo "awscli not available"
-          }
+          # Detect package manager
+          if command -v apt-get >/dev/null 2>&1; then
+            echo "Using apt-get package manager"
+            $SUDO apt-get update || true
+            $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli || {
+              echo "Some apt packages failed to install, checking what's available..."
+              command -v curl >/dev/null 2>&1 || echo "curl not available"
+              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
+              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
+              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
+              command -v jq >/dev/null 2>&1 || echo "jq not available"
+              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
+            }
+          elif command -v yum >/dev/null 2>&1; then
+            echo "Using yum package manager"
+            $SUDO yum update -y || true
+            $SUDO yum install -y curl unzip python3 python3-pip jq awscli || {
+              echo "Some yum packages failed to install, checking what's available..."
+              command -v curl >/dev/null 2>&1 || echo "curl not available"
+              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
+              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
+              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
+              command -v jq >/dev/null 2>&1 || echo "jq not available"
+              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
+            }
+          elif command -v dnf >/dev/null 2>&1; then
+            echo "Using dnf package manager"
+            $SUDO dnf update -y || true
+            $SUDO dnf install -y curl unzip python3 python3-pip jq awscli || {
+              echo "Some dnf packages failed to install, checking what's available..."
+              command -v curl >/dev/null 2>&1 || echo "curl not available"
+              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
+              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
+              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
+              command -v jq >/dev/null 2>&1 || echo "jq not available"
+              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
+            }
+          else
+            echo "No supported package manager found (apt-get, yum, dnf)"
+            echo "Checking what's already available..."
+            command -v curl >/dev/null 2>&1 && echo "✓ curl available" || echo "✗ curl not found"
+            command -v unzip >/dev/null 2>&1 && echo "✓ unzip available" || echo "✗ unzip not found"
+            command -v python3 >/dev/null 2>&1 && echo "✓ python3 available" || echo "✗ python3 not found"
+            command -v pip3 >/dev/null 2>&1 && echo "✓ pip3 available" || echo "✗ pip3 not found"
+            command -v jq >/dev/null 2>&1 && echo "✓ jq available" || echo "✗ jq not found"
+            command -v aws >/dev/null 2>&1 && echo "✓ aws CLI available" || echo "✗ aws CLI not found"
+          fi
           
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -164,6 +197,26 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.aws_region || 'us-west-2' }}
+          
+      - name: Verify AWS Credentials
+        run: |
+          echo "Verifying AWS credentials..."
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "❌ AWS credentials are not set"
+            echo "Please check your GitHub secrets: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+            exit 1
+          fi
+          
+          # Test AWS credentials
+          aws sts get-caller-identity || {
+            echo "❌ AWS credentials are invalid"
+            echo "Please verify your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets"
+            echo "Make sure the credentials have proper permissions for EC2 access"
+            exit 1
+          }
+          
+          echo "✅ AWS credentials verified successfully"
+          aws sts get-caller-identity
           
       - name: Parse Instance IDs
         id: parse-instances
