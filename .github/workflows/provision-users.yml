@@ -43,6 +43,9 @@ jobs:
   validate:
     name: Validate Terraform Configuration
     runs-on: docker
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -108,6 +111,9 @@ jobs:
     needs: validate
     runs-on: docker
     if: github.event_name == 'workflow_dispatch'
+    permissions:
+      id-token: write
+      contents: read
     
     steps:
       - name: Checkout code
@@ -191,47 +197,39 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           
+      - name: Set Role Name
+        run: |
+          # Use the standard OIDC role that exists in all accounts
+          # You can override this by setting AWS_EC2_CREATION_ROLE secret if needed
+          ROLE_NAME="${AWS_EC2_CREATION_ROLE:-cat_oidc_github_actions}"
+          echo "AuthRole=arn:aws:iam::${{ github.repository_owner }}:role/$ROLE_NAME" >> $GITHUB_ENV
+          echo "Using role: $ROLE_NAME"
+          
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+          role-to-assume: ${{ env.AuthRole }}
           role-duration-seconds: 3600
+          aws-region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
           
       - name: Verify AWS Credentials
         run: |
           echo "=== AWS Credentials Verification ==="
-          
-          # Check if credentials are set
-          if [ -z "$AWS_ACCESS_KEY_ID" ]; then
-            echo "❌ AWS_ACCESS_KEY_ID is not set"
-            echo "Please add AWS_ACCESS_KEY_ID to your GitHub repository secrets"
-            exit 1
-          fi
-          
-          if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "❌ AWS_SECRET_ACCESS_KEY is not set"
-            echo "Please add AWS_SECRET_ACCESS_KEY to your GitHub repository secrets"
-            exit 1
-          fi
-          
-          echo "✅ AWS credentials are set"
-          echo "AWS Region: $AWS_DEFAULT_REGION"
-          echo "Access Key ID: ${AWS_ACCESS_KEY_ID:0:8}..."
           
           # Test AWS credentials with detailed error handling
           echo "Testing AWS credentials..."
           aws sts get-caller-identity || {
             echo "❌ AWS credentials are invalid or expired"
             echo "Possible issues:"
-            echo "1. Access key or secret key is incorrect"
-            echo "2. Credentials have expired"
-            echo "3. Insufficient permissions (need EC2 access)"
-            echo "4. Wrong AWS region"
+            echo "1. OIDC role configuration is incorrect"
+            echo "2. Role permissions are insufficient"
+            echo "3. Wrong AWS region"
+            echo "4. Role name is incorrect (tried: $ROLE_NAME)"
             echo ""
-            echo "Please verify your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets"
-            echo "Make sure the credentials have proper permissions for EC2 access"
+            echo "Please verify:"
+            echo "- The role exists in your AWS account"
+            echo "- The role has proper permissions for EC2 access"
+            echo "- Set AWS_EC2_CREATION_ROLE secret if role name is different"
             exit 1
           }
           
@@ -340,6 +338,9 @@ jobs:
       github.event.inputs.send_emails != 'false' &&
       github.event.inputs.dry_run != 'true' &&
       github.event.inputs.dry_run != true
+    permissions:
+      id-token: write
+      contents: read
     
     steps:
       - name: Checkout code
@@ -370,6 +371,9 @@ jobs:
     name: Dry Run Test
     runs-on: docker
     if: github.event_name == 'workflow_dispatch' && (github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true)
+    permissions:
+      id-token: write
+      contents: read
     
     steps:
       - name: Checkout code
