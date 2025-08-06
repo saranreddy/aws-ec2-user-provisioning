@@ -7,11 +7,21 @@ on:
         description: 'Comma-separated list of EC2 instance IDs'
         required: true
         type: string
-      aws_region:
-        description: 'AWS region'
-        required: false
-        default: 'us-east-1'
+      aws_account_id:
+        description: 'AWS Account ID:'
+        required: true
+        default: '872515261591'
         type: string
+      aws_region:
+        description: 'AWS Region:'
+        required: true
+        default: 'us-east-2'
+        type: choice
+        options:
+          - us-east-2
+          - us-west-2
+          - us-east-1
+
       dry_run:
         description: 'Enable dry run mode (no actual changes)'
         required: false
@@ -52,25 +62,11 @@ jobs:
         
       - name: Install dependencies
         run: |
-          # Check if we're running as root or need sudo
-          if [ "$EUID" -eq 0 ]; then
-            SUDO=""
-          else
-            SUDO="sudo"
-          fi
-          
-          # Update package lists
-          $SUDO apt-get update || true
-          
-          # Install packages with error handling
-          $SUDO apt-get install -y curl unzip python3 python3-pip jq || {
-            echo "Some packages failed to install, checking what's available..."
-            # Check what's already available
-            command -v curl >/dev/null 2>&1 || echo "curl not available"
-            command -v unzip >/dev/null 2>&1 || echo "unzip not available"
-            command -v python3 >/dev/null 2>&1 || echo "python3 not available"
-            command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
-            command -v jq >/dev/null 2>&1 || echo "jq not available"
+          set -e
+          apt-get update || true
+          apt-get install -y curl unzip python3 python3-pip jq || {
+            echo "❌ Failed to install required dependencies"
+            exit 1
           }
           
       - name: Setup Terraform
@@ -119,78 +115,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Check runner environment
-        run: |
-          echo "=== Runner Environment Check ==="
-          echo "User: $(whoami)"
-          echo "EUID: $EUID"
-          echo "Distribution: $(cat /etc/os-release | grep PRETTY_NAME || echo 'Unknown')"
-          echo "Available commands:"
-          command -v curl >/dev/null 2>&1 && echo "✓ curl available" || echo "✗ curl not found"
-          command -v unzip >/dev/null 2>&1 && echo "✓ unzip available" || echo "✗ unzip not found"
-          command -v python3 >/dev/null 2>&1 && echo "✓ python3 available" || echo "✗ python3 not found"
-          command -v pip3 >/dev/null 2>&1 && echo "✓ pip3 available" || echo "✗ pip3 not found"
-          command -v jq >/dev/null 2>&1 && echo "✓ jq available" || echo "✗ jq not found"
-          command -v aws >/dev/null 2>&1 && echo "✓ aws CLI available" || echo "✗ aws CLI not found"
-          command -v terraform >/dev/null 2>&1 && echo "✓ terraform available" || echo "✗ terraform not found"
-          echo "================================"
+
         
       - name: Install dependencies
         run: |
-          # Check if we're running as root or need sudo
-          if [ "$EUID" -eq 0 ]; then
-            SUDO=""
-          else
-            SUDO="sudo"
-          fi
-          
-          # Detect package manager
-          if command -v apt-get >/dev/null 2>&1; then
-            echo "Using apt-get package manager"
-            $SUDO apt-get update || true
-            $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli || {
-              echo "Some apt packages failed to install, checking what's available..."
-              command -v curl >/dev/null 2>&1 || echo "curl not available"
-              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
-              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
-              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
-              command -v jq >/dev/null 2>&1 || echo "jq not available"
-              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
-            }
-          elif command -v yum >/dev/null 2>&1; then
-            echo "Using yum package manager"
-            $SUDO yum update -y || true
-            $SUDO yum install -y curl unzip python3 python3-pip jq awscli || {
-              echo "Some yum packages failed to install, checking what's available..."
-              command -v curl >/dev/null 2>&1 || echo "curl not available"
-              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
-              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
-              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
-              command -v jq >/dev/null 2>&1 || echo "jq not available"
-              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
-            }
-          elif command -v dnf >/dev/null 2>&1; then
-            echo "Using dnf package manager"
-            $SUDO dnf update -y || true
-            $SUDO dnf install -y curl unzip python3 python3-pip jq awscli || {
-              echo "Some dnf packages failed to install, checking what's available..."
-              command -v curl >/dev/null 2>&1 || echo "curl not available"
-              command -v unzip >/dev/null 2>&1 || echo "unzip not available"
-              command -v python3 >/dev/null 2>&1 || echo "python3 not available"
-              command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
-              command -v jq >/dev/null 2>&1 || echo "jq not available"
-              command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
-            }
-          else
-            echo "No supported package manager found (apt-get, yum, dnf)"
-            echo "Checking what's already available..."
-            command -v curl >/dev/null 2>&1 && echo "✓ curl available" || echo "✗ curl not found"
-            command -v unzip >/dev/null 2>&1 && echo "✓ unzip available" || echo "✗ unzip not found"
-            command -v python3 >/dev/null 2>&1 && echo "✓ python3 available" || echo "✗ python3 not found"
-            command -v pip3 >/dev/null 2>&1 && echo "✓ pip3 available" || echo "✗ pip3 not found"
-            command -v jq >/dev/null 2>&1 && echo "✓ jq available" || echo "✗ jq not found"
-            command -v aws >/dev/null 2>&1 && echo "✓ aws CLI available" || echo "✗ aws CLI not found"
-          fi
+          set -e
+          apt-get update || true
+          apt-get install -y curl unzip python3 python3-pip jq awscli || {
+            echo "❌ Failed to install required dependencies"
+            exit 1
+          }
           
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -199,21 +133,27 @@ jobs:
           
       - name: Set Role Name
         run: |
-          # Use the standard OIDC role that exists in all accounts
-          # You can override this by setting AWS_EC2_CREATION_ROLE secret if needed
-          ROLE_NAME="${AWS_EC2_CREATION_ROLE:-cat_oidc_github_actions}"
-          echo "AuthRole=arn:aws:iam::${{ github.repository_owner }}:role/$ROLE_NAME" >> $GITHUB_ENV
-          echo "Using role: $ROLE_NAME"
+          set -e
+          # Validate required secrets
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            echo "Please add this secret to your repository settings"
+            exit 1
+          fi
+          
+          echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
+          echo "Using role ARN: ${{ env.AuthRole }}"
           
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AuthRole }}
-          role-duration-seconds: 3600
-          aws-region: ${{ github.event.inputs.aws_region || 'us-east-1' }}
+          role-duration-seconds: ${{ vars.GITHUBACTIONSAPPSESSION || 3600 }}
+          aws-region: ${{ inputs.aws_region }}
           
       - name: Verify AWS Credentials
         run: |
+          set -e
           echo "=== AWS Credentials Verification ==="
           
           # Test AWS credentials with detailed error handling
@@ -224,12 +164,14 @@ jobs:
             echo "1. OIDC role configuration is incorrect"
             echo "2. Role permissions are insufficient"
             echo "3. Wrong AWS region"
-            echo "4. Role name is incorrect (tried: $ROLE_NAME)"
+            echo "4. Role name is incorrect (tried: ${{ secrets.aws_ec2_creation_role }})"
+            echo "5. Account ID is incorrect (tried: ${{ inputs.aws_account_id }})"
             echo ""
             echo "Please verify:"
             echo "- The role exists in your AWS account"
             echo "- The role has proper permissions for EC2 access"
-            echo "- Set AWS_EC2_CREATION_ROLE secret if role name is different"
+            echo "- Set aws_ec2_creation_role secret if role name is different"
+            echo "- Verify the role ARN: arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}"
             exit 1
           }
           
@@ -240,6 +182,7 @@ jobs:
       - name: Parse Instance IDs
         id: parse-instances
         run: |
+          set -e
           # Check if this is a manual workflow dispatch with instance IDs
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.instance_ids }}" ]; then
             INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
@@ -252,6 +195,15 @@ jobs:
             echo "Please run this workflow manually and provide instance IDs"
             exit 1
           fi
+          
+          # Validate instance ID format
+          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
+            if [[ ! "$id" =~ ^i-[a-f0-9]{8,17}$ ]]; then
+              echo "❌ Invalid instance ID format: $id"
+              echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
+              exit 1
+            fi
+          done
           
           # Convert comma-separated string to JSON array
           INSTANCE_IDS_JSON=$(echo "$INSTANCE_IDS" | tr ',' '\n' | jq -R . | jq -s .)
@@ -270,21 +222,29 @@ jobs:
           
       - name: Terraform Plan
         id: plan
+        timeout-minutes: 10
         run: |
+          set -e
           cd terraform
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             echo "Running in dry-run mode - no actual changes will be made"
             terraform plan \
               -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
-              -var="aws_region=${{ github.event.inputs.aws_region || 'us-east-1' }}" \
+              -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
-              -detailed-exitcode
+              -detailed-exitcode || {
+              echo "❌ Terraform plan failed"
+              exit 1
+            }
           else
             terraform plan \
               -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
-              -var="aws_region=${{ github.event.inputs.aws_region || 'us-east-1' }}" \
+              -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
-              -out=tfplan
+              -out=tfplan || {
+              echo "❌ Terraform plan failed"
+              exit 1
+            }
           fi
         continue-on-error: true
         
@@ -299,10 +259,15 @@ jobs:
           
       - name: Terraform Apply
         if: github.event.inputs.dry_run != 'true' && github.event.inputs.dry_run != true
+        timeout-minutes: 15
         run: |
+          set -e
           cd terraform
           if [ -f "tfplan" ]; then
-            terraform apply -auto-approve tfplan
+            terraform apply -auto-approve tfplan || {
+              echo "❌ Terraform apply failed"
+              exit 1
+            }
           else
             echo "No plan file found - skipping apply"
           fi
@@ -358,46 +323,25 @@ jobs:
           path: terraform/
           
       - name: Send SSH Keys via Email
+        timeout-minutes: 5
         run: |
+          set -e
+          # Validate required SMTP secrets
+          if [ -z "${{ secrets.SMTP_HOST }}" ] || [ -z "${{ secrets.SMTP_USER }}" ] || [ -z "${{ secrets.SMTP_PASS }}" ]; then
+            echo "❌ Required SMTP secrets are not set"
+            echo "Please add SMTP_HOST, SMTP_USER, and SMTP_PASS secrets to your repository settings"
+            exit 1
+          fi
+          
           python3 scripts/send_keys.py \
             --smtp-host "${{ secrets.SMTP_HOST }}" \
             --smtp-user "${{ secrets.SMTP_USER }}" \
             --smtp-pass "${{ secrets.SMTP_PASS }}" \
             --smtp-port "${{ secrets.SMTP_PORT || '587' }}" \
             --users-file users.yaml \
-            --terraform-dir terraform
+            --terraform-dir terraform || {
+            echo "❌ Failed to send SSH keys via email"
+            exit 1
+          }
 
-  dry-run-test:
-    name: Dry Run Test
-    runs-on: docker
-    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.dry_run == 'true' || github.event.inputs.dry_run == true)
-    permissions:
-      id-token: write
-      contents: read
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Install Python dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install pyyaml
-          
-      - name: Test Email Script (Dry Run)
-        run: |
-          python3 scripts/send_keys.py \
-            --smtp-host "test.example.com" \
-            --smtp-user "test@example.com" \
-            --smtp-pass "testpass" \
-            --dry-run \
-            --users-file users.yaml \
-            --terraform-dir terraform
-        continue-on-error: true
-        
-      - name: Show Dry Run Results
-        run: |
-          echo "=== DRY RUN COMPLETED ==="
-          echo "This was a dry run - no actual changes were made to EC2 instances"
-          echo "No emails were sent"
-          echo "Review the plan output above to see what would have been done" 
+ 

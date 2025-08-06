@@ -3,12 +3,24 @@
 variable "aws_region" {
   description = "AWS region where resources will be created"
   type        = string
-  default     = "us-west-2"
+  default     = "us-east-2"
+
+  validation {
+    condition     = contains(["us-east-1", "us-east-2", "us-west-1", "us-west-2"], var.aws_region)
+    error_message = "AWS region must be one of: us-east-1, us-east-2, us-west-1, us-west-2"
+  }
 }
 
 variable "instance_ids" {
   description = "List of EC2 instance IDs where users should be provisioned"
   type        = list(string)
+
+  validation {
+    condition = alltrue([
+      for id in var.instance_ids : can(regex("^i-[a-f0-9]{8,17}$", id))
+    ])
+    error_message = "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
+  }
 }
 
 variable "ssh_private_key_path" {

@@ -1,8 +1,6 @@
 # Main Terraform configuration for AWS EC2 user provisioning
 # This file handles the creation of users and SSH keys on EC2 instances
 
-
-
 provider "aws" {
   region = var.aws_region
 }
@@ -12,14 +10,16 @@ data "local_file" "users_config" {
   filename = var.users_file
 }
 
-
-
 # Generate SSH key pairs for each user
 resource "tls_private_key" "user_keys" {
   for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
 
   algorithm = "RSA"
   rsa_bits  = 4096
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Store private keys locally (these will be emailed to users)
@@ -61,11 +61,15 @@ resource "null_resource" "provision_users" {
     instance_id = each.value
   }
 
-  # Validate that instance has public IP
+  # Validate that instance has public IP and is running
   lifecycle {
     precondition {
       condition     = data.aws_instance.instance[each.key].public_ip != null
       error_message = "Instance ${each.value} does not have a public IP address. Please ensure the instance has a public IP or use a bastion host."
+    }
+    precondition {
+      condition     = data.aws_instance.instance[each.key].instance_state == "running"
+      error_message = "Instance ${each.value} is not running. Current state: ${data.aws_instance.instance[each.key].instance_state}"
     }
   }
 
