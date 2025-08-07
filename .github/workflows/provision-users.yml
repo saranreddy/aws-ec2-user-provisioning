@@ -307,12 +307,14 @@ jobs:
           FIRST=true
           for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
             if [ "$FIRST" = true ]; then
-              echo "  \"$id\"" >> terraform.tfvars
+              echo "  \"$id\"," >> terraform.tfvars
               FIRST=false
             else
               echo "  \"$id\"," >> terraform.tfvars
             fi
           done
+          # Remove the last comma and add closing bracket
+          sed -i '$ s/,$//' terraform.tfvars
           echo "]" >> terraform.tfvars
           
           echo "instance_ids=terraform.tfvars" >> $GITHUB_OUTPUT
