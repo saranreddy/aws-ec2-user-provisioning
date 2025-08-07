@@ -301,21 +301,23 @@ jobs:
           # Convert comma-separated string to Terraform list format
           echo "Converting instance IDs to Terraform list format..."
           
-          # Create a proper Terraform list format: ["id1", "id2", "id3"]
-          INSTANCE_IDS_LIST="["
+          # Create a terraform.tfvars file with proper list format
+          cd terraform
+          echo "instance_ids = [" > terraform.tfvars
           FIRST=true
           for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
             if [ "$FIRST" = true ]; then
-              INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}\"$id\""
+              echo "  \"$id\"" >> terraform.tfvars
               FIRST=false
             else
-              INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}, \"$id\""
+              echo "  \"$id\"," >> terraform.tfvars
             fi
           done
-          INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}]"
+          echo "]" >> terraform.tfvars
           
-          echo "instance_ids=$INSTANCE_IDS_LIST" >> $GITHUB_OUTPUT
-          echo "Parsed instance IDs: $INSTANCE_IDS_LIST"
+          echo "instance_ids=terraform.tfvars" >> $GITHUB_OUTPUT
+          echo "Created terraform.tfvars with instance IDs:"
+          cat terraform.tfvars
           
       - name: Create Keys Directory
         run: |
@@ -336,7 +338,6 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             echo "Running in dry-run mode - no actual changes will be made"
             terraform plan \
-              -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
               -detailed-exitcode || {
@@ -345,7 +346,6 @@ jobs:
             }
           else
             terraform plan \
-              -var="instance_ids=${{ steps.parse-instances.outputs.instance_ids }}" \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
               -out=tfplan || {
