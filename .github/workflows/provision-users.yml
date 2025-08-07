@@ -298,10 +298,24 @@ jobs:
             fi
           done
           
-          # Convert comma-separated string to JSON array
-          INSTANCE_IDS_JSON=$(echo "$INSTANCE_IDS" | tr ',' '\n' | jq -R . | jq -s .)
-          echo "instance_ids=$INSTANCE_IDS_JSON" >> $GITHUB_OUTPUT
-          echo "Parsed instance IDs: $INSTANCE_IDS_JSON"
+          # Convert comma-separated string to Terraform list format
+          echo "Converting instance IDs to Terraform list format..."
+          
+          # Create a proper Terraform list format: ["id1", "id2", "id3"]
+          INSTANCE_IDS_LIST="["
+          FIRST=true
+          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
+            if [ "$FIRST" = true ]; then
+              INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}\"$id\""
+              FIRST=false
+            else
+              INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}, \"$id\""
+            fi
+          done
+          INSTANCE_IDS_LIST="${INSTANCE_IDS_LIST}]"
+          
+          echo "instance_ids=$INSTANCE_IDS_LIST" >> $GITHUB_OUTPUT
+          echo "Parsed instance IDs: $INSTANCE_IDS_LIST"
           
       - name: Create Keys Directory
         run: |
