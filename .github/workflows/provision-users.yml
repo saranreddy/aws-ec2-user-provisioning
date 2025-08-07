@@ -272,6 +272,151 @@ jobs:
           echo "Caller Identity:"
           aws sts get-caller-identity
           
+      - name: Debug AWS Environment
+        run: |
+          set -e
+          echo "=== AWS Environment Debug ==="
+          echo "AWS Region: ${{ inputs.aws_region }}"
+          echo "AWS Account ID: ${{ inputs.aws_account_id }}"
+          echo "Role Name: ${{ secrets.aws_ec2_creation_role }}"
+          echo "Full Role ARN: arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}"
+          
+          # Test AWS CLI version and configuration
+          echo "AWS CLI Version:"
+          aws --version
+          
+          # Test basic AWS permissions
+          echo "Testing AWS permissions..."
+          echo "1. Testing EC2 Describe Instances permission..."
+          aws ec2 describe-instances --region ${{ inputs.aws_region }} --max-items 1 --query 'Reservations[0].Instances[0].InstanceId' --output text || {
+            echo "❌ Cannot describe EC2 instances - permission issue"
+            echo "The role needs ec2:DescribeInstances permission"
+          }
+          
+          echo "2. Testing IAM Get Role permission..."
+          aws iam get-role --role-name ${{ secrets.aws_ec2_creation_role }} || {
+            echo "❌ Cannot get IAM role - permission issue"
+            echo "The role needs iam:GetRole permission"
+          }
+          
+          echo "3. Testing STS Get Caller Identity..."
+          aws sts get-caller-identity || {
+            echo "❌ Cannot get caller identity"
+          }
+          
+          echo "=== End AWS Environment Debug ==="
+          
+      - name: Check SSH Key Availability
+        run: |
+          set -e
+          echo "=== SSH Key Availability Check ==="
+          
+          # Check if SSH private key secret is set
+          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ SSH private key secret 'EC2_SSH_PRIVATE_KEY' is not set"
+            echo "This is required for connecting to EC2 instances"
+            echo ""
+            echo "To fix this:"
+            echo "1. Add the EC2_SSH_PRIVATE_KEY secret to your repository"
+            echo "2. The value should be the private key content (not the file path)"
+            echo "3. This key must match the key pair used to launch the EC2 instances"
+            echo ""
+            echo "Alternative: Consider using AWS Systems Manager (SSM) instead of SSH"
+            echo "This would eliminate the need for SSH keys entirely"
+            exit 1
+          else
+            echo "✅ SSH private key secret is set"
+            echo "Key length: ${#EC2_SSH_PRIVATE_KEY} characters"
+            
+            # Test if the key looks like a valid SSH private key
+            if [[ "${{ secrets.EC2_SSH_PRIVATE_KEY }}" == *"-----BEGIN"* ]] && [[ "${{ secrets.EC2_SSH_PRIVATE_KEY }}" == *"-----END"* ]]; then
+              echo "✅ SSH key format appears valid"
+            else
+              echo "⚠️  SSH key format may be invalid - should contain BEGIN/END markers"
+            fi
+          fi
+          
+          echo "=== End SSH Key Check ==="
+          
+      - name: Validate Instance IDs
+        run: |
+          set -e
+          echo "=== Instance ID Validation ==="
+          
+          INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
+          echo "Input instance IDs: $INSTANCE_IDS"
+          
+          if [ -z "$INSTANCE_IDS" ]; then
+            echo "❌ No instance IDs provided"
+            exit 1
+          fi
+          
+          # Check each instance ID format
+          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
+            echo "Validating instance ID: $id"
+            
+            # Check format
+            if [[ ! "$id" =~ ^i-[a-f0-9]{8,17}$ ]]; then
+              echo "❌ Invalid instance ID format: $id"
+              echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
+              exit 1
+            fi
+            
+            # Check if instance exists in AWS
+            echo "Checking if instance $id exists in AWS..."
+            if aws ec2 describe-instances --instance-ids "$id" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null; then
+              INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids "$id" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text)
+              echo "✅ Instance $id exists and is in state: $INSTANCE_STATE"
+              
+              if [ "$INSTANCE_STATE" != "running" ]; then
+                echo "⚠️  Warning: Instance $id is not running (state: $INSTANCE_STATE)"
+                echo "The instance must be running for user provisioning to work"
+              fi
+            else
+              echo "❌ Instance $id does not exist in AWS region ${{ inputs.aws_region }}"
+              echo "Please verify:"
+              echo "1. The instance ID is correct"
+              echo "2. The instance exists in the specified region (${{ inputs.aws_region }})"
+              echo "3. You have permission to describe this instance"
+              exit 1
+            fi
+          done
+          
+          echo "=== End Instance ID Validation ==="
+          
+      - name: Check Terraform Configuration
+        run: |
+          set -e
+          echo "=== Terraform Configuration Check ==="
+          
+          cd terraform
+          
+          # Check if required files exist
+          echo "Checking Terraform files..."
+          ls -la *.tf
+          
+          # Check if variables.tf has required variables
+          if grep -q "instance_ids" variables.tf; then
+            echo "✅ instance_ids variable is defined"
+          else
+            echo "❌ instance_ids variable is not defined in variables.tf"
+          fi
+          
+          if grep -q "aws_region" variables.tf; then
+            echo "✅ aws_region variable is defined"
+          else
+            echo "❌ aws_region variable is not defined in variables.tf"
+          fi
+          
+          # Check if main.tf references the SSH key path
+          if grep -q "ssh_private_key_path" main.tf; then
+            echo "✅ SSH key path is referenced in main.tf"
+          else
+            echo "❌ SSH key path is not referenced in main.tf"
+          fi
+          
+          echo "=== End Terraform Configuration Check ==="
+          
       - name: Parse Instance IDs
         id: parse-instances
         run: |
@@ -329,7 +474,22 @@ jobs:
       - name: Terraform Init
         run: |
           cd terraform
-          terraform init
+          echo "=== Terraform Initialization ==="
+          echo "Current directory: $(pwd)"
+          echo "Terraform files present:"
+          ls -la *.tf
+          
+          echo "Initializing Terraform..."
+          terraform init || {
+            echo "❌ Terraform initialization failed"
+            echo "This might be due to:"
+            echo "1. Network connectivity issues"
+            echo "2. Provider download problems"
+            echo "3. Configuration syntax errors"
+            echo "4. Permission issues"
+            exit 1
+          }
+          echo "✅ Terraform initialization successful"
           
       - name: Terraform Plan
         id: plan
@@ -337,6 +497,23 @@ jobs:
         run: |
           set -e
           cd terraform
+          echo "=== Terraform Plan Execution ==="
+          
+          # Show current terraform.tfvars content
+          echo "Current terraform.tfvars content:"
+          if [ -f "terraform.tfvars" ]; then
+            cat terraform.tfvars
+          else
+            echo "❌ terraform.tfvars file not found"
+            exit 1
+          fi
+          
+          # Show variables that will be used
+          echo "Variables to be used:"
+          echo "- aws_region: ${{ inputs.aws_region }}"
+          echo "- dry_run: ${{ github.event.inputs.dry_run }}"
+          echo "- instance_ids: (from terraform.tfvars)"
+          
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             echo "Running in dry-run mode - no actual changes will be made"
             terraform plan \
@@ -344,6 +521,12 @@ jobs:
               -var="dry_run=true" \
               -detailed-exitcode || {
               echo "❌ Terraform plan failed"
+              echo "Common causes:"
+              echo "1. SSH private key file missing (check EC2_SSH_PRIVATE_KEY secret)"
+              echo "2. EC2 instance not found (check instance ID and region)"
+              echo "3. Insufficient AWS permissions"
+              echo "4. Terraform configuration errors"
+              echo "5. Network connectivity issues"
               exit 1
             }
           else
@@ -352,19 +535,136 @@ jobs:
               -var="dry_run=false" \
               -out=tfplan || {
               echo "❌ Terraform plan failed"
+              echo "Common causes:"
+              echo "1. SSH private key file missing (check EC2_SSH_PRIVATE_KEY secret)"
+              echo "2. EC2 instance not found (check instance ID and region)"
+              echo "3. Insufficient AWS permissions"
+              echo "4. Terraform configuration errors"
+              echo "5. Network connectivity issues"
               exit 1
             }
           fi
+          
+          echo "✅ Terraform plan completed successfully"
         continue-on-error: true
         
       - name: Show Terraform Plan
         run: |
           cd terraform
+          echo "=== Terraform Plan Details ==="
           if [ -f "tfplan" ]; then
-            terraform show tfplan
+            echo "Plan file exists, showing details..."
+            terraform show tfplan || {
+              echo "❌ Failed to show terraform plan"
+              echo "This might indicate a corrupted plan file"
+            }
           else
             echo "No plan file found (dry run mode or no changes)"
+            echo "This could mean:"
+            echo "1. No changes are needed"
+            echo "2. Plan failed and didn't create a plan file"
+            echo "3. Running in dry-run mode"
           fi
+          
+      - name: Debug Terraform State
+        run: |
+          cd terraform
+          echo "=== Terraform State Debug ==="
+          
+          # Check if state file exists
+          if [ -f ".terraform/terraform.tfstate" ]; then
+            echo "✅ Terraform state file exists"
+            echo "State file size: $(stat -c%s .terraform/terraform.tfstate) bytes"
+          else
+            echo "⚠️  No terraform state file found"
+          fi
+          
+          # Show current state
+          echo "Current Terraform state:"
+          terraform show || {
+            echo "❌ Failed to show terraform state"
+          }
+          
+          echo "=== End Terraform State Debug ==="
+          
+      - name: Check SSH Key File Issues
+        run: |
+          set -e
+          echo "=== SSH Key File Check ==="
+          
+          cd terraform
+          
+          # Check if the SSH key file path is being used correctly
+          echo "Checking SSH key file references in Terraform..."
+          
+          # Look for SSH key path references in main.tf
+          if grep -q "ssh_private_key_path" main.tf; then
+            echo "✅ SSH key path variable is referenced in main.tf"
+            
+            # Check what the default path is
+            SSH_PATH=$(grep -A1 -B1 "ssh_private_key_path" main.tf || echo "Not found")
+            echo "SSH key path configuration:"
+            echo "$SSH_PATH"
+          else
+            echo "❌ SSH key path not found in main.tf"
+          fi
+          
+          # Check if the SSH key file would exist at the expected location
+          EXPECTED_PATH="~/.ssh/ec2-provisioning-key"
+          echo "Expected SSH key path: $EXPECTED_PATH"
+          
+          # Check if we can create the SSH key file from the secret
+          if [ -n "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "✅ SSH private key secret is available"
+            echo "Creating SSH key file for Terraform..."
+            
+            # Create .ssh directory
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            
+            # Write the SSH key to file
+            echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2-provisioning-key
+            chmod 600 ~/.ssh/ec2-provisioning-key
+            
+            echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
+            echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
+          else
+            echo "❌ SSH private key secret is not available"
+            echo "This will cause the 'SSH private key file does not exist' error"
+          fi
+          
+          echo "=== End SSH Key File Check ==="
+          
+      - name: Check Output Format Issues
+        run: |
+          set -e
+          echo "=== Output Format Check ==="
+          
+          cd terraform
+          
+          # Check the outputs.tf file for potential issues
+          echo "Checking outputs.tf for format issues..."
+          
+          if [ -f "outputs.tf" ]; then
+            echo "✅ outputs.tf file exists"
+            
+            # Check for the specific output that was causing issues
+            if grep -q "user_private_keys" outputs.tf; then
+              echo "Found user_private_keys output, checking format..."
+              
+              # Show the output definition
+              grep -A10 "user_private_keys" outputs.tf || echo "Output definition not found"
+              
+              echo "⚠️  Note: The 'Invalid index' error suggests the output format may need adjustment"
+              echo "This typically happens when trying to access a map with numeric keys"
+            else
+              echo "user_private_keys output not found in outputs.tf"
+            fi
+          else
+            echo "❌ outputs.tf file not found"
+          fi
+          
+          echo "=== End Output Format Check ==="
           
       - name: Terraform Apply
         if: github.event.inputs.dry_run != 'true' && github.event.inputs.dry_run != true
@@ -372,29 +672,108 @@ jobs:
         run: |
           set -e
           cd terraform
+          echo "=== Terraform Apply Execution ==="
+          
+          # Check if plan file exists
           if [ -f "tfplan" ]; then
+            echo "✅ Plan file exists, proceeding with apply..."
+            echo "Plan file size: $(stat -c%s tfplan) bytes"
+            
+            # Show what will be applied
+            echo "Resources to be applied:"
+            terraform show tfplan | grep -E "^[+-]" || echo "No changes detected"
+            
+            # Apply the plan
             terraform apply -auto-approve tfplan || {
               echo "❌ Terraform apply failed"
+              echo "Common causes:"
+              echo "1. SSH connection failed to EC2 instances"
+              echo "2. EC2 instances are not running"
+              echo "3. SSH key authentication failed"
+              echo "4. Network connectivity issues"
+              echo "5. Insufficient permissions on EC2 instances"
+              echo ""
+              echo "Debugging steps:"
+              echo "1. Verify EC2 instances are running"
+              echo "2. Check SSH key is correct"
+              echo "3. Verify security groups allow SSH access"
+              echo "4. Check instance user permissions"
               exit 1
             }
+            
+            echo "✅ Terraform apply completed successfully"
           else
-            echo "No plan file found - skipping apply"
+            echo "❌ No plan file found - skipping apply"
+            echo "This could mean:"
+            echo "1. Plan step failed"
+            echo "2. No changes are needed"
+            echo "3. Plan file was not created"
+            exit 1
           fi
+          
+          echo "=== End Terraform Apply ==="
           
       - name: Terraform Output
         run: |
           cd terraform
-          terraform output -json > terraform_output.json
-          echo "Terraform outputs saved to terraform_output.json"
+          echo "=== Terraform Output Generation ==="
+          
+          # Try to generate outputs with error handling
+          echo "Generating Terraform outputs..."
+          terraform output -json > terraform_output.json || {
+            echo "❌ Failed to generate Terraform outputs"
+            echo "This might be due to:"
+            echo "1. Output format errors (Invalid index errors)"
+            echo "2. Resources not created successfully"
+            echo "3. State file issues"
+            echo ""
+            echo "Attempting to show outputs in text format..."
+            terraform output || {
+              echo "❌ Also failed to show outputs in text format"
+              echo "This suggests the outputs.tf file may have format issues"
+            }
+            exit 1
+          }
+          
+          echo "✅ Terraform outputs saved to terraform_output.json"
+          echo "Output file size: $(stat -c%s terraform_output.json) bytes"
+          
+          # Show a summary of the outputs
+          echo "Output summary:"
+          terraform output -json | jq 'keys' || {
+            echo "❌ Failed to parse outputs with jq"
+            echo "Raw output content:"
+            cat terraform_output.json
+          }
+          
+          echo "=== End Terraform Output ==="
           
       - name: Show Provisioning Summary
         run: |
           cd terraform
           echo "=== PROVISIONING SUMMARY ==="
-          terraform output provisioning_summary
+          
+          # Try to show provisioning summary with error handling
+          terraform output provisioning_summary || {
+            echo "❌ Failed to show provisioning_summary output"
+            echo "This might be due to output format issues or missing output"
+          }
+          
           echo ""
           echo "=== INSTANCES PROVISIONED ==="
-          terraform output provisioned_instances
+          terraform output provisioned_instances || {
+            echo "❌ Failed to show provisioned_instances output"
+            echo "This might be due to output format issues or missing output"
+          }
+          
+          echo ""
+          echo "=== ALL AVAILABLE OUTPUTS ==="
+          terraform output || {
+            echo "❌ Failed to show any outputs"
+            echo "This suggests the outputs.tf file may have issues"
+          }
+          
+          echo "=== END PROVISIONING SUMMARY ==="
           
       - name: Upload Terraform Outputs
         uses: actions/upload-artifact@v4
