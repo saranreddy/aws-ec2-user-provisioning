@@ -46,7 +46,7 @@ on:
       - '.github/workflows/**'
 
 env:
-  TF_VERSION: "1.5.0"
+  TF_VERSION: "1.5.7"
   PYTHON_VERSION: "3.9"
 
 jobs:
@@ -113,10 +113,11 @@ jobs:
       - name: Terraform Format Check
         run: |
           cd terraform
-          echo "Checking Terraform formatting..."
+          echo "Checking Terraform formatting with version $(terraform version | head -n1)..."
           terraform fmt -check -recursive || {
             echo "⚠️  Terraform formatting issues found, but continuing..."
             echo "This is a warning, not a critical error."
+            echo "Files will be automatically formatted in the next run."
           }
         continue-on-error: true
           
