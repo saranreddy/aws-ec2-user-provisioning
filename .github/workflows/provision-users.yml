@@ -60,13 +60,49 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Check environment
+        run: |
+          echo "=== Environment Check ==="
+          echo "User: $(whoami)"
+          echo "EUID: $EUID"
+          echo "Distribution: $(cat /etc/os-release | grep PRETTY_NAME || echo 'Unknown')"
+          echo "Available commands:"
+          command -v curl >/dev/null 2>&1 && echo "✓ curl available" || echo "✗ curl not found"
+          command -v unzip >/dev/null 2>&1 && echo "✓ unzip available" || echo "✗ unzip not found"
+          command -v python3 >/dev/null 2>&1 && echo "✓ python3 available" || echo "✗ python3 not found"
+          command -v pip3 >/dev/null 2>&1 && echo "✓ pip3 available" || echo "✗ pip3 not found"
+          command -v jq >/dev/null 2>&1 && echo "✓ jq available" || echo "✗ jq not found"
+          echo "================================"
+        
       - name: Install dependencies
         run: |
-          set -e
-          apt-get update || true
-          apt-get install -y curl unzip python3 python3-pip jq || {
-            echo "❌ Failed to install required dependencies"
-            exit 1
+          # Check if we're running as root or need sudo
+          if [ "$EUID" -eq 0 ]; then
+            SUDO=""
+          else
+            SUDO="sudo"
+          fi
+          
+          # Update package lists with error handling
+          $SUDO apt-get update || true
+          
+          # Install packages with better error handling
+          $SUDO apt-get install -y curl unzip python3 python3-pip jq || {
+            echo "⚠️  Some packages failed to install, checking what's available..."
+            # Check what's already available
+            command -v curl >/dev/null 2>&1 || echo "curl not available"
+            command -v unzip >/dev/null 2>&1 || echo "unzip not available"
+            command -v python3 >/dev/null 2>&1 || echo "python3 not available"
+            command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
+            command -v jq >/dev/null 2>&1 || echo "jq not available"
+            
+            # Continue if at least python3 is available
+            if command -v python3 >/dev/null 2>&1; then
+              echo "✅ Python3 is available, continuing..."
+            else
+              echo "❌ Critical dependency python3 is not available"
+              exit 1
+            fi
           }
           
       - name: Setup Terraform
@@ -119,11 +155,34 @@ jobs:
         
       - name: Install dependencies
         run: |
-          set -e
-          apt-get update || true
-          apt-get install -y curl unzip python3 python3-pip jq awscli || {
-            echo "❌ Failed to install required dependencies"
-            exit 1
+          # Check if we're running as root or need sudo
+          if [ "$EUID" -eq 0 ]; then
+            SUDO=""
+          else
+            SUDO="sudo"
+          fi
+          
+          # Update package lists with error handling
+          $SUDO apt-get update || true
+          
+          # Install packages with better error handling
+          $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli || {
+            echo "⚠️  Some packages failed to install, checking what's available..."
+            # Check what's already available
+            command -v curl >/dev/null 2>&1 || echo "curl not available"
+            command -v unzip >/dev/null 2>&1 || echo "unzip not available"
+            command -v python3 >/dev/null 2>&1 || echo "python3 not available"
+            command -v pip3 >/dev/null 2>&1 || echo "pip3 not available"
+            command -v jq >/dev/null 2>&1 || echo "jq not available"
+            command -v aws >/dev/null 2>&1 || echo "aws CLI not available"
+            
+            # Continue if at least python3 is available
+            if command -v python3 >/dev/null 2>&1; then
+              echo "✅ Python3 is available, continuing..."
+            else
+              echo "❌ Critical dependency python3 is not available"
+              exit 1
+            fi
           }
           
       - name: Setup Terraform
