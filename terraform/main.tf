@@ -10,44 +10,82 @@ data "local_file" "users_config" {
   filename = var.users_file
 }
 
-# Generate SSH key pairs for each user
-resource "tls_private_key" "user_keys" {
-  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
+# S3-based SSH Key Management
+# Keys are pre-generated and stored in S3 bucket, then retrieved as needed
 
-  algorithm = "RSA"
-  rsa_bits  = 4096
+# S3 bucket for storing SSH keys
+resource "aws_s3_bucket" "ssh_keys" {
+  bucket = "terraform-state-ec2-user-provisioning"
 
-  lifecycle {
-    create_before_destroy = true
+  tags = var.tags
+}
+
+# Enable versioning for key history
+resource "aws_s3_bucket_versioning" "ssh_keys_versioning" {
+  bucket = aws_s3_bucket.ssh_keys.id
+  versioning_configuration {
+    status = "Enabled"
   }
 }
 
-# Store private keys locally (these will be emailed to users)
-resource "local_file" "private_keys" {
-  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
+# Enable server-side encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "ssh_keys_encryption" {
+  bucket = aws_s3_bucket.ssh_keys.id
 
-  filename = "${path.module}/keys/${each.key}_private_key.pem"
-  content  = tls_private_key.user_keys[each.key].private_key_pem
-
-  file_permission = "0600"
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
 }
 
-# Store public keys locally
-resource "local_file" "public_keys" {
-  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
+# Block public access to the keys bucket
+resource "aws_s3_bucket_public_access_block" "ssh_keys_pab" {
+  bucket = aws_s3_bucket.ssh_keys.id
 
-  filename = "${path.module}/keys/${each.key}_public_key.pub"
-  content  = tls_private_key.user_keys[each.key].public_key_openssh
-
-  file_permission = "0644"
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-# Create directory for keys
-resource "local_file" "keys_directory" {
-  filename = "${path.module}/keys/.gitkeep"
-  content  = ""
+# Fetch public keys from S3 for each user
+data "aws_s3_object" "user_public_keys" {
+  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
 
-  file_permission = "0644"
+  bucket = aws_s3_bucket.ssh_keys.bucket
+  key    = "keys/${each.key}_public_key"
+
+  depends_on = [null_resource.verify_keys_exist]
+}
+
+# Verify all required keys exist in S3 before proceeding
+resource "null_resource" "verify_keys_exist" {
+  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Checking if keys exist for user: ${each.key}"
+      aws s3 ls s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key || {
+        echo "ERROR: Public key for user ${each.key} not found in S3"
+        echo "Expected location: s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key"
+        echo "Please ensure keys are generated and uploaded before running Terraform"
+        exit 1
+      }
+      aws s3 ls s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key || {
+        echo "ERROR: Private key for user ${each.key} not found in S3"
+        echo "Expected location: s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key"
+        echo "Please ensure keys are generated and uploaded before running Terraform"
+        exit 1
+      }
+      echo "✅ Keys verified for user: ${each.key}"
+    EOT
+  }
+
+  triggers = {
+    users_hash = md5(data.local_file.users_config.content)
+  }
 }
 
 # Provision users on each EC2 instance
@@ -55,10 +93,10 @@ resource "null_resource" "provision_users" {
   for_each = { for instance_id in var.instance_ids : instance_id => instance_id }
 
   triggers = {
-    # Trigger when user list changes or when keys are regenerated
-    users_hash  = md5(data.local_file.users_config.content)
-    keys_hash   = md5(join("", [for key in tls_private_key.user_keys : key.private_key_pem]))
-    instance_id = each.value
+    # Trigger when user list changes or when S3 keys change
+    users_hash   = md5(data.local_file.users_config.content)
+    s3_keys_hash = md5(join("", [for key in data.aws_s3_object.user_public_keys : key.body]))
+    instance_id  = each.value
   }
 
   # Validate that instance has public IP and is running
@@ -90,31 +128,42 @@ resource "null_resource" "provision_users" {
     ]
   }
 
-  # Create users and add SSH keys
+  # Create users and add SSH keys from S3
   provisioner "remote-exec" {
     inline = concat(
-      ["echo 'Creating users and setting up SSH keys...'"],
+      ["echo 'Creating users and setting up SSH keys from S3...'"],
       ["echo 'Skipping YUM updates to avoid proxy timeout...'"],
       flatten([
         for user in yamldecode(data.local_file.users_config.content).users : [
           "echo 'Processing user: ${user.username}'",
+
+          # Create user account
           "sudo useradd -m -s /bin/bash -c '${user.full_name}' ${user.username} || echo 'User ${user.username} already exists'",
+
+          # Create .ssh directory with proper permissions
           "sudo mkdir -p /home/${user.username}/.ssh",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh",
           "sudo chmod 700 /home/${user.username}/.ssh",
-          "echo '${tls_private_key.user_keys[user.username].private_key_pem}' | sudo tee /home/${user.username}/.ssh/${user.username}_key",
-          "echo '${tls_private_key.user_keys[user.username].public_key_openssh}' | sudo tee /home/${user.username}/.ssh/${user.username}_key.pub",
-          "echo '${tls_private_key.user_keys[user.username].public_key_openssh}' | sudo tee -a /home/${user.username}/.ssh/authorized_keys",
-          "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/${user.username}_key",
-          "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/${user.username}_key.pub",
+
+          # Install public key from S3 to authorized_keys
+          "echo '${data.aws_s3_object.user_public_keys[user.username].body}' | sudo tee /home/${user.username}/.ssh/authorized_keys",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/authorized_keys",
-          "sudo chmod 600 /home/${user.username}/.ssh/${user.username}_key",
-          "sudo chmod 644 /home/${user.username}/.ssh/${user.username}_key.pub",
           "sudo chmod 600 /home/${user.username}/.ssh/authorized_keys",
-          "echo 'User ${user.username} provisioned successfully with keys in /home/${user.username}/.ssh/'"
+
+          # Validate the key format
+          "if sudo ssh-keygen -l -f /home/${user.username}/.ssh/authorized_keys >/dev/null 2>&1; then",
+          "  echo '✅ Valid SSH key installed for ${user.username}'",
+          "else",
+          "  echo '❌ WARNING: Invalid SSH key format for ${user.username}'",
+          "fi",
+
+          # Test key permissions
+          "sudo -u ${user.username} test -r /home/${user.username}/.ssh/authorized_keys && echo '✅ Key file readable by ${user.username}' || echo '❌ Key file not readable by ${user.username}'",
+
+          "echo 'User ${user.username} provisioned successfully with S3-stored key'"
         ]
       ]),
-      ["echo 'User provisioning completed on instance ${each.value}'"]
+      ["echo 'User provisioning completed on instance ${each.value} using S3-stored keys'"]
     )
   }
 }

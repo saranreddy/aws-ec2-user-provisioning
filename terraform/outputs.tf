@@ -21,26 +21,30 @@ output "instances_provisioned" {
   value       = var.instance_ids
 }
 
-output "user_private_keys" {
-  description = "Private SSH keys for each user (to be emailed)"
+output "user_s3_key_locations" {
+  description = "S3 locations of SSH keys for each user (to be downloaded for emailing)"
   value = {
     for username, user in yamldecode(data.local_file.users_config.content).users : username => {
-      private_key = try(tls_private_key.user_keys[username].private_key_pem, "key_not_available")
-      public_key  = try(tls_private_key.user_keys[username].public_key_openssh, "key_not_available")
-      email       = user.email
-      full_name   = user.full_name
+      private_key_s3_path = "s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${username}_private_key"
+      public_key_s3_path  = "s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${username}_public_key"
+      email               = user.email
+      full_name           = user.full_name
     }
   }
-  sensitive = true
+}
+
+output "s3_bucket_name" {
+  description = "Name of the S3 bucket storing SSH keys"
+  value       = aws_s3_bucket.ssh_keys.bucket
 }
 
 output "next_steps" {
   description = "Next steps after provisioning"
   value = [
-    "1. SSH keys have been generated and stored in the terraform/keys/ directory",
+    "1. SSH keys have been generated and stored securely in S3 bucket: ${aws_s3_bucket.ssh_keys.bucket}",
     "2. Users have been created on all specified EC2 instances",
-    "3. Public keys have been added to each user's authorized_keys",
-    "4. Run the email script to send private keys to users: python3 scripts/send_keys.py",
-    "5. Users can now SSH to instances using their private keys"
+    "3. Public keys from S3 have been added to each user's authorized_keys",
+    "4. Private keys will be downloaded from S3 and emailed to users automatically",
+    "5. Users can SSH to instances using their private keys downloaded from email"
   ]
 } 
