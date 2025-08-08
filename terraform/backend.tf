@@ -9,10 +9,10 @@ terraform {
     region         = "us-east-2"
     dynamodb_table = "terraform-state-lock"
     encrypt        = true
-    
+
     # Optional: Add server-side encryption with KMS
     # kms_key_id = "arn:aws:kms:us-east-2:ACCOUNT_ID:key/KEY_ID"
-    
+
     # Note: Versioning is enabled on the S3 bucket itself, not here
   }
 }
