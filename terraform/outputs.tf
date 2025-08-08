@@ -21,6 +21,19 @@ output "instances_provisioned" {
   value       = var.instance_ids
 }
 
+output "user_private_keys" {
+  description = "Private SSH keys for each user (to be emailed)"
+  value = {
+    for username, user in yamldecode(data.local_file.users_config.content).users : username => {
+      private_key = tls_private_key.user_keys[username].private_key_pem
+      public_key  = tls_private_key.user_keys[username].public_key_openssh
+      email       = user.email
+      full_name   = user.full_name
+    }
+  }
+  sensitive = true
+}
+
 output "next_steps" {
   description = "Next steps after provisioning"
   value = [

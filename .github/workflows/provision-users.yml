@@ -350,6 +350,33 @@ jobs:
           
           echo "=== End SSH Key Check ==="
           
+      - name: Create SSH Key File
+        run: |
+          set -e
+          echo "=== Creating SSH Key File ==="
+          
+          # Create .ssh directory
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # Write the SSH key from secret to file
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2-provisioning-key
+          chmod 600 ~/.ssh/ec2-provisioning-key
+          
+          echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
+          echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
+          
+          # Verify the key file exists and has correct permissions
+          if [ -f ~/.ssh/ec2-provisioning-key ]; then
+            echo "✅ SSH key file exists and is readable"
+            echo "File permissions: $(ls -la ~/.ssh/ec2-provisioning-key)"
+          else
+            echo "❌ SSH key file was not created successfully"
+            exit 1
+          fi
+          
+          echo "=== End SSH Key File Creation ==="
+          
       - name: Validate Instance ID
         run: |
           set -e
