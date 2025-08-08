@@ -416,12 +416,20 @@ jobs:
             fi
             
             if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "null" ]; then
-              echo "❌ Instance $INSTANCE_ID does not have a public IP address"
-              echo "The instance must have a public IP for SSH connection"
-              echo "Please ensure the instance has a public IP or use a bastion host"
-              exit 1
+              echo "⚠️  Instance $INSTANCE_ID does not have a public IP address"
+              echo "Will use private IP for SSH connection (assuming same network)"
             else
               echo "✅ Instance $INSTANCE_ID has public IP: $PUBLIC_IP"
+            fi
+            
+            # Check for private IP
+            PRIVATE_IP=$(echo "$INSTANCE_INFO" | jq -r '.PrivateIpAddress // empty')
+            if [ -z "$PRIVATE_IP" ] || [ "$PRIVATE_IP" = "null" ]; then
+              echo "❌ Instance $INSTANCE_ID does not have a private IP address"
+              echo "Cannot connect to instance without IP address"
+              exit 1
+            else
+              echo "✅ Instance $INSTANCE_ID has private IP: $PRIVATE_IP"
             fi
           else
             echo "❌ Instance $INSTANCE_ID does not exist in AWS region ${{ inputs.aws_region }}"

@@ -75,7 +75,7 @@ resource "null_resource" "provision_users" {
 
   connection {
     type        = "ssh"
-    host        = data.aws_instance.instance[each.key].public_ip
+    host        = data.aws_instance.instance[each.key].private_ip
     user        = var.ssh_user
     private_key = file(var.ssh_private_key_path)
     timeout     = "5m"
