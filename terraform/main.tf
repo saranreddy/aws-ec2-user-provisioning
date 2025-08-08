@@ -91,9 +91,10 @@ resource "null_resource" "provision_users" {
   }
 
   # Create users and add SSH keys
-  provisioner "remote-exec" {
-    inline = concat(
-      ["echo 'Creating users and setting up SSH keys...'"],
+          provisioner "remote-exec" {
+          inline = concat(
+            ["echo 'Creating users and setting up SSH keys...'"],
+            ["echo 'Skipping YUM updates to avoid proxy timeout...'"],
       flatten([
         for user in yamldecode(data.local_file.users_config.content).users : [
           "echo 'Processing user: ${user.username}'",
