@@ -857,21 +857,50 @@ jobs:
           
           echo "=== END PROVISIONING SUMMARY ==="
           
-      - name: Create S3 Success File
+      - name: Create S3 Bucket and Testing File
         run: |
-          echo "=== Creating S3 Success File ==="
+          echo "=== Creating S3 Bucket and Testing File ==="
           
-          # Create a simple success file
-          echo "User provisioning completed successfully at $(date)" > provisioning-success.txt
+          # Create unique bucket name with timestamp
+          BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
+          echo "Creating bucket: $BUCKET_NAME"
           
-          # Upload to S3 (using a default bucket name - you can customize this)
-          aws s3 cp provisioning-success.txt s3://your-bucket-name/provisioning-success-$(date +%Y%m%d-%H%M%S).txt || {
-            echo "⚠️  S3 upload failed, but continuing..."
-            echo "This is expected if S3 bucket doesn't exist or permissions are not set"
+          # Create S3 bucket
+          aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} || {
+            echo "⚠️  Bucket creation failed, trying alternative name..."
+            BUCKET_NAME="ec2-user-provisioning-test-$(date +%Y%m%d)"
+            aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} || {
+              echo "❌ Failed to create S3 bucket"
+              echo "This might be due to:"
+              echo "1. Insufficient S3 permissions"
+              echo "2. Bucket name already exists"
+              echo "3. Invalid bucket name format"
+              exit 1
+            }
           }
           
-          echo "✅ S3 step completed successfully"
-          echo "=== End S3 Success File ==="
+          echo "✅ S3 bucket created successfully: s3://$BUCKET_NAME"
+          
+          # Create empty testing file
+          touch testing
+          echo "Empty testing file created locally"
+          
+          # Upload testing file to S3
+          aws s3 cp testing s3://$BUCKET_NAME/testing || {
+            echo "❌ Failed to upload testing file to S3"
+            echo "Bucket created but file upload failed"
+            exit 1
+          }
+          
+          echo "✅ Testing file uploaded successfully: s3://$BUCKET_NAME/testing"
+          
+          # List contents to verify
+          echo "📋 Bucket contents:"
+          aws s3 ls s3://$BUCKET_NAME/ || {
+            echo "⚠️  Could not list bucket contents"
+          }
+          
+          echo "=== End S3 Bucket and Testing File ==="
           
       # - name: Upload Terraform Outputs
       #   uses: actions/upload-artifact@v4
