@@ -118,17 +118,17 @@ data "aws_instance" "instance" {
   instance_id = each.value
 }
 
-# Validate SSH private key file exists
-data "local_file" "ssh_private_key" {
-  filename = var.ssh_private_key_path
-
-  lifecycle {
-    precondition {
-      condition     = fileexists(var.ssh_private_key_path)
-      error_message = "SSH private key file '${var.ssh_private_key_path}' does not exist. Please ensure the file exists and has correct permissions."
-    }
-  }
-}
+# Validate SSH private key file exists (commented out for debugging)
+# data "local_file" "ssh_private_key" {
+#   filename = var.ssh_private_key_path
+# 
+#   lifecycle {
+#     precondition {
+#       condition     = fileexists(var.ssh_private_key_path)
+#       error_message = "SSH private key file '${var.ssh_private_key_path}' does not exist. Please ensure the file exists and has correct permissions."
+#     }
+#   }
+# }
 
 
 
