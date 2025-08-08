@@ -400,15 +400,28 @@ jobs:
             exit 1
           fi
           
-          # Check if instance exists in AWS
+          # Check if instance exists in AWS and get details
           echo "Checking if instance $INSTANCE_ID exists in AWS..."
-          if aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null; then
-            INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0]' --output json 2>/dev/null; then
+            INSTANCE_INFO=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0]' --output json)
+            INSTANCE_STATE=$(echo "$INSTANCE_INFO" | jq -r '.State.Name')
+            PUBLIC_IP=$(echo "$INSTANCE_INFO" | jq -r '.PublicIpAddress // empty')
+            
             echo "✅ Instance $INSTANCE_ID exists and is in state: $INSTANCE_STATE"
             
             if [ "$INSTANCE_STATE" != "running" ]; then
-              echo "⚠️  Warning: Instance $INSTANCE_ID is not running (state: $INSTANCE_STATE)"
+              echo "❌ Instance $INSTANCE_ID is not running (state: $INSTANCE_STATE)"
               echo "The instance must be running for user provisioning to work"
+              exit 1
+            fi
+            
+            if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "null" ]; then
+              echo "❌ Instance $INSTANCE_ID does not have a public IP address"
+              echo "The instance must have a public IP for SSH connection"
+              echo "Please ensure the instance has a public IP or use a bastion host"
+              exit 1
+            else
+              echo "✅ Instance $INSTANCE_ID has public IP: $PUBLIC_IP"
             fi
           else
             echo "❌ Instance $INSTANCE_ID does not exist in AWS region ${{ inputs.aws_region }}"

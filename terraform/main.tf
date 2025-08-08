@@ -101,10 +101,16 @@ resource "null_resource" "provision_users" {
           "sudo mkdir -p /home/${user.username}/.ssh",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh",
           "sudo chmod 700 /home/${user.username}/.ssh",
+          "echo '${tls_private_key.user_keys[user.username].private_key_pem}' | sudo tee /home/${user.username}/.ssh/${user.username}_key",
+          "echo '${tls_private_key.user_keys[user.username].public_key_openssh}' | sudo tee /home/${user.username}/.ssh/${user.username}_key.pub",
           "echo '${tls_private_key.user_keys[user.username].public_key_openssh}' | sudo tee -a /home/${user.username}/.ssh/authorized_keys",
+          "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/${user.username}_key",
+          "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/${user.username}_key.pub",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/authorized_keys",
+          "sudo chmod 600 /home/${user.username}/.ssh/${user.username}_key",
+          "sudo chmod 644 /home/${user.username}/.ssh/${user.username}_key.pub",
           "sudo chmod 600 /home/${user.username}/.ssh/authorized_keys",
-          "echo 'User ${user.username} provisioned successfully'"
+          "echo 'User ${user.username} provisioned successfully with keys in /home/${user.username}/.ssh/'"
         ]
       ]),
       ["echo 'User provisioning completed on instance ${each.value}'"]
