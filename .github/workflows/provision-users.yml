@@ -154,19 +154,47 @@ jobs:
           cd terraform
           echo "=== Initializing Terraform for Validation (Local Backend) ==="
           
+          # Show current directory and files
+          echo "Current directory: $(pwd)"
+          echo "Terraform files present:"
+          ls -la *.tf || echo "No .tf files found"
+          
+          # Check network connectivity
+          echo "Testing network connectivity..."
+          curl -I https://registry.terraform.io/providers/hashicorp/aws/5.0.0 || {
+            echo "⚠️ Cannot reach Terraform registry - network issue"
+          }
+          
+          # Show Terraform version
+          echo "Terraform version:"
+          terraform version
+          
           # Temporarily rename backend.tf to skip S3 backend for validation
           if [ -f "backend.tf" ]; then
             mv backend.tf backend.tf.temp
             echo "Temporarily disabled S3 backend for validation"
           fi
           
-          # Initialize Terraform without S3 backend for validation
-          terraform init || {
+          # Show what we'll initialize with
+          echo "Configuration files for initialization:"
+          ls -la *.tf
+          
+          # Initialize Terraform without S3 backend for validation with debug
+          echo "Running terraform init..."
+          TF_LOG=DEBUG terraform init -no-color || {
             echo "❌ Terraform initialization failed"
+            echo "Checking detailed error..."
+            
+            # Try to get more specific error information
+            echo "Terraform init with minimal output:"
+            terraform init -no-color 2>&1 || true
+            
             echo "This might be due to:"
             echo "1. Network connectivity issues"
             echo "2. Provider download problems"
             echo "3. Configuration syntax errors"
+            echo "4. Docker container network restrictions"
+            
             # Restore backend.tf
             if [ -f "backend.tf.temp" ]; then
               mv backend.tf.temp backend.tf
