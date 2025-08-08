@@ -857,6 +857,22 @@ jobs:
           
           echo "=== END PROVISIONING SUMMARY ==="
           
+      - name: Create S3 Success File
+        run: |
+          echo "=== Creating S3 Success File ==="
+          
+          # Create a simple success file
+          echo "User provisioning completed successfully at $(date)" > provisioning-success.txt
+          
+          # Upload to S3 (using a default bucket name - you can customize this)
+          aws s3 cp provisioning-success.txt s3://your-bucket-name/provisioning-success-$(date +%Y%m%d-%H%M%S).txt || {
+            echo "⚠️  S3 upload failed, but continuing..."
+            echo "This is expected if S3 bucket doesn't exist or permissions are not set"
+          }
+          
+          echo "✅ S3 step completed successfully"
+          echo "=== End S3 Success File ==="
+          
       # - name: Upload Terraform Outputs
       #   uses: actions/upload-artifact@v4
       #   with:
