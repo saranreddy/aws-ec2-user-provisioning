@@ -496,6 +496,33 @@ jobs:
           cd terraform
           mkdir -p keys
           
+      - name: Verify SSH Key Before Terraform
+        run: |
+          set -e
+          echo "=== Pre-Terraform SSH Key Verification ==="
+          
+          # Check if SSH key file exists
+          if [ ! -f ~/.ssh/ec2-provisioning-key ]; then
+            echo "❌ SSH key file missing before Terraform execution"
+            echo "Creating SSH key file from secret..."
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2-provisioning-key
+            chmod 600 ~/.ssh/ec2-provisioning-key
+          fi
+          
+          # Verify the file exists and has correct permissions
+          if [ -f ~/.ssh/ec2-provisioning-key ]; then
+            echo "✅ SSH key file verified: ~/.ssh/ec2-provisioning-key"
+            echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
+            echo "File permissions: $(ls -la ~/.ssh/ec2-provisioning-key)"
+          else
+            echo "❌ SSH key file still missing after creation attempt"
+            exit 1
+          fi
+          
+          echo "=== End SSH Key Verification ==="
+          
       - name: Terraform Init
         run: |
           cd terraform
@@ -634,28 +661,37 @@ jobs:
             echo "❌ SSH key path not found in main.tf"
           fi
           
-          # Check if the SSH key file would exist at the expected location
+          # Check if the SSH key file exists at the expected location
           EXPECTED_PATH="~/.ssh/ec2-provisioning-key"
           echo "Expected SSH key path: $EXPECTED_PATH"
           
-          # Check if we can create the SSH key file from the secret
-          if [ -n "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
-            echo "✅ SSH private key secret is available"
-            echo "Creating SSH key file for Terraform..."
+          # Check if the SSH key file exists
+          if [ -f ~/.ssh/ec2-provisioning-key ]; then
+            echo "✅ SSH key file exists at ~/.ssh/ec2-provisioning-key"
+            echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
+            echo "File permissions: $(ls -la ~/.ssh/ec2-provisioning-key)"
             
-            # Create .ssh directory
+            # Show first few lines of the key (safely)
+            echo "Key file content preview:"
+            head -3 ~/.ssh/ec2-provisioning-key | sed 's/.*/***/'
+          else
+            echo "❌ SSH key file does not exist at ~/.ssh/ec2-provisioning-key"
+            echo "This means the 'Create SSH Key File' step failed or didn't run"
+            
+            # Try to create it again
+            echo "Attempting to create SSH key file again..."
             mkdir -p ~/.ssh
             chmod 700 ~/.ssh
-            
-            # Write the SSH key to file
             echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2-provisioning-key
             chmod 600 ~/.ssh/ec2-provisioning-key
             
-            echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
-            echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
-          else
-            echo "❌ SSH private key secret is not available"
-            echo "This will cause the 'SSH private key file does not exist' error"
+            if [ -f ~/.ssh/ec2-provisioning-key ]; then
+              echo "✅ SSH key file created successfully"
+              echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
+            else
+              echo "❌ Failed to create SSH key file"
+              exit 1
+            fi
           fi
           
           echo "=== End SSH Key File Check ==="
