@@ -25,8 +25,8 @@ output "user_private_keys" {
   description = "Private SSH keys for each user (to be emailed)"
   value = {
     for username, user in yamldecode(data.local_file.users_config.content).users : username => {
-      private_key = tls_private_key.user_keys[username].private_key_pem
-      public_key  = tls_private_key.user_keys[username].public_key_openssh
+      private_key = try(tls_private_key.user_keys[username].private_key_pem, "key_not_available")
+      public_key  = try(tls_private_key.user_keys[username].public_key_openssh, "key_not_available")
       email       = user.email
       full_name   = user.full_name
     }
