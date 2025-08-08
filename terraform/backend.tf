@@ -13,8 +13,7 @@ terraform {
     # Optional: Add server-side encryption with KMS
     # kms_key_id = "arn:aws:kms:us-east-2:ACCOUNT_ID:key/KEY_ID"
     
-    # Enable state file versioning for backup/recovery
-    versioning = true
+    # Note: Versioning is enabled on the S3 bucket itself, not here
   }
 }
 
