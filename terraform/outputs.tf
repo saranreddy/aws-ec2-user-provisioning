@@ -21,17 +21,6 @@ output "instances_provisioned" {
   value       = var.instance_ids
 }
 
-output "ssh_connection_info" {
-  description = "SSH connection information for users"
-  value = {
-    for instance_id in var.instance_ids : instance_id => {
-      instance_id = instance_id
-      ssh_command = "ssh -i keys/USERNAME_private_key.pem USERNAME@${data.aws_instance.instance[instance_id].public_ip}"
-      note        = "Replace USERNAME with the actual username (e.g., alice, bob, etc.)"
-    }
-  }
-}
-
 output "next_steps" {
   description = "Next steps after provisioning"
   value = [

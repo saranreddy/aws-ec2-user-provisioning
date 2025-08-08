@@ -4,9 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       instance_ids:
-        description: 'Comma-separated list of EC2 instance IDs'
+        description: 'Select EC2 instance ID from the dropdown'
         required: true
-        type: string
+        type: choice
+        options:
+          - i-0d2ea774d38f88fe2
+          - i-059108826eb667a3d
+          - i-03810d57b29eff7fa
+          - i-04f6cf69514fab8ec
+          - i-069c4707f66eee735
+          - i-038146dc9a729c973
+          - i-0ce61b84050ece568
+          - i-0079b3bcbc7b9c83e
+          - i-0a6b63f03c28c1336
+          - i-019d6e26b39617852
+          - i-00ca906185f13e772
       aws_account_id:
         description: 'AWS Account ID:'
         required: true
@@ -338,49 +350,47 @@ jobs:
           
           echo "=== End SSH Key Check ==="
           
-      - name: Validate Instance IDs
+      - name: Validate Instance ID
         run: |
           set -e
           echo "=== Instance ID Validation ==="
           
-          INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
-          echo "Input instance IDs: $INSTANCE_IDS"
+          INSTANCE_ID="${{ github.event.inputs.instance_ids }}"
+          echo "Selected instance ID: $INSTANCE_ID"
           
-          if [ -z "$INSTANCE_IDS" ]; then
-            echo "❌ No instance IDs provided"
+          if [ -z "$INSTANCE_ID" ]; then
+            echo "❌ No instance ID selected"
             exit 1
           fi
           
-          # Check each instance ID format
-          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
-            echo "Validating instance ID: $id"
+          # Check instance ID format
+          echo "Validating instance ID: $INSTANCE_ID"
+          
+          # Check format
+          if [[ ! "$INSTANCE_ID" =~ ^i-[a-f0-9]{8,17}$ ]]; then
+            echo "❌ Invalid instance ID format: $INSTANCE_ID"
+            echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
+            exit 1
+          fi
+          
+          # Check if instance exists in AWS
+          echo "Checking if instance $INSTANCE_ID exists in AWS..."
+          if aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null; then
+            INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text)
+            echo "✅ Instance $INSTANCE_ID exists and is in state: $INSTANCE_STATE"
             
-            # Check format
-            if [[ ! "$id" =~ ^i-[a-f0-9]{8,17}$ ]]; then
-              echo "❌ Invalid instance ID format: $id"
-              echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
-              exit 1
+            if [ "$INSTANCE_STATE" != "running" ]; then
+              echo "⚠️  Warning: Instance $INSTANCE_ID is not running (state: $INSTANCE_STATE)"
+              echo "The instance must be running for user provisioning to work"
             fi
-            
-            # Check if instance exists in AWS
-            echo "Checking if instance $id exists in AWS..."
-            if aws ec2 describe-instances --instance-ids "$id" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null; then
-              INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids "$id" --region ${{ inputs.aws_region }} --query 'Reservations[0].Instances[0].State.Name' --output text)
-              echo "✅ Instance $id exists and is in state: $INSTANCE_STATE"
-              
-              if [ "$INSTANCE_STATE" != "running" ]; then
-                echo "⚠️  Warning: Instance $id is not running (state: $INSTANCE_STATE)"
-                echo "The instance must be running for user provisioning to work"
-              fi
-            else
-              echo "❌ Instance $id does not exist in AWS region ${{ inputs.aws_region }}"
-              echo "Please verify:"
-              echo "1. The instance ID is correct"
-              echo "2. The instance exists in the specified region (${{ inputs.aws_region }})"
-              echo "3. You have permission to describe this instance"
-              exit 1
-            fi
-          done
+          else
+            echo "❌ Instance $INSTANCE_ID does not exist in AWS region ${{ inputs.aws_region }}"
+            echo "Please verify:"
+            echo "1. The instance ID is correct"
+            echo "2. The instance exists in the specified region (${{ inputs.aws_region }})"
+            echo "3. You have permission to describe this instance"
+            exit 1
+          fi
           
           echo "=== End Instance ID Validation ==="
           
@@ -417,53 +427,41 @@ jobs:
           
           echo "=== End Terraform Configuration Check ==="
           
-      - name: Parse Instance IDs
+      - name: Parse Instance ID
         id: parse-instances
         run: |
           set -e
-          # Check if this is a manual workflow dispatch with instance IDs
+          # Check if this is a manual workflow dispatch with instance ID
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.instance_ids }}" ]; then
-            INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
-            echo "Using manually provided instance IDs: $INSTANCE_IDS"
+            INSTANCE_ID="${{ github.event.inputs.instance_ids }}"
+            echo "Using selected instance ID: $INSTANCE_ID"
           else
             # For automatic triggers (push/PR), use a default or placeholder
             # You can modify this to use a default instance ID or skip the job
-            echo "No instance IDs provided for automatic trigger"
-            echo "This workflow requires manual trigger with instance IDs"
-            echo "Please run this workflow manually and provide instance IDs"
+            echo "No instance ID selected for automatic trigger"
+            echo "This workflow requires manual trigger with instance ID selection"
+            echo "Please run this workflow manually and select an instance ID"
             exit 1
           fi
           
           # Validate instance ID format
-          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
-            if [[ ! "$id" =~ ^i-[a-f0-9]{8,17}$ ]]; then
-              echo "❌ Invalid instance ID format: $id"
-              echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
-              exit 1
-            fi
-          done
+          if [[ ! "$INSTANCE_ID" =~ ^i-[a-f0-9]{8,17}$ ]]; then
+            echo "❌ Invalid instance ID format: $INSTANCE_ID"
+            echo "Instance IDs must be in format: i-xxxxxxxxxxxxxxxxx"
+            exit 1
+          fi
           
-          # Convert comma-separated string to Terraform list format
-          echo "Converting instance IDs to Terraform list format..."
+          # Convert single instance ID to Terraform list format
+          echo "Converting instance ID to Terraform list format..."
           
           # Create a terraform.tfvars file with proper list format
           cd terraform
           echo "instance_ids = [" > terraform.tfvars
-          FIRST=true
-          for id in $(echo "$INSTANCE_IDS" | tr ',' ' '); do
-            if [ "$FIRST" = true ]; then
-              echo "  \"$id\"," >> terraform.tfvars
-              FIRST=false
-            else
-              echo "  \"$id\"," >> terraform.tfvars
-            fi
-          done
-          # Remove the last comma and add closing bracket
-          sed -i '$ s/,$//' terraform.tfvars
+          echo "  \"$INSTANCE_ID\"" >> terraform.tfvars
           echo "]" >> terraform.tfvars
           
           echo "instance_ids=terraform.tfvars" >> $GITHUB_OUTPUT
-          echo "Created terraform.tfvars with instance IDs:"
+          echo "Created terraform.tfvars with instance ID:"
           cat terraform.tfvars
           
       - name: Create Keys Directory
