@@ -857,61 +857,61 @@ jobs:
           
           echo "=== END PROVISIONING SUMMARY ==="
           
-      - name: Upload Terraform Outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-outputs
-          path: terraform/terraform_output.json
-          retention-days: 7
+      # - name: Upload Terraform Outputs
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: terraform-outputs
+      #     path: terraform/terraform_output.json
+      #     retention-days: 7
 
-  send-email-keys:
-    name: Send SSH Keys to Users
-    needs: provision-users
-    runs-on: docker
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.send_emails != 'false' &&
-      github.event.inputs.dry_run != 'true' &&
-      github.event.inputs.dry_run != true
-    permissions:
-      id-token: write
-      contents: read
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Install Python dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          pip3 install pyyaml
-          
-      - name: Download Terraform Outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-outputs
-          path: terraform/
-          
-      - name: Send SSH Keys via Email
-        timeout-minutes: 5
-        run: |
-          set -e
-          # Validate required SMTP secrets
-          if [ -z "${{ secrets.SMTP_HOST }}" ] || [ -z "${{ secrets.SMTP_USER }}" ] || [ -z "${{ secrets.SMTP_PASS }}" ]; then
-            echo "❌ Required SMTP secrets are not set"
-            echo "Please add SMTP_HOST, SMTP_USER, and SMTP_PASS secrets to your repository settings"
-            exit 1
-          fi
-          
-          python3 scripts/send_keys.py \
-            --smtp-host "${{ secrets.SMTP_HOST }}" \
-            --smtp-user "${{ secrets.SMTP_USER }}" \
-            --smtp-pass "${{ secrets.SMTP_PASS }}" \
-            --smtp-port "${{ secrets.SMTP_PORT || '587' }}" \
-            --users-file users.yaml \
-            --terraform-dir terraform || {
-            echo "❌ Failed to send SSH keys via email"
-            exit 1
-          }
+  # send-email-keys:
+  #   name: Send SSH Keys to Users
+  #   needs: provision-users
+  #   runs-on: docker
+  #   if: |
+  #     github.event_name == 'workflow_dispatch' &&
+  #     github.event.inputs.send_emails != 'false' &&
+  #     github.event.inputs.dry_run != 'true' &&
+  #     github.event_inputs.dry_run != true
+  #   permissions:
+  #     id-token: write
+  #     contents: read
+  #   
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #       
+  #     - name: Install Python dependencies
+  #       run: |
+  #         python3 -m pip install --upgrade pip
+  #         pip3 install pyyaml
+  #         
+  #     - name: Download Terraform Outputs
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: terraform-outputs
+  #         path: terraform/
+  #         
+  #     - name: Send SSH Keys via Email
+  #       timeout-minutes: 5
+  #       run: |
+  #         set -e
+  #         # Validate required SMTP secrets
+  #         if [ -z "${{ secrets.SMTP_HOST }}" ] || [ -z "${{ secrets.SMTP_USER }}" ] || [ -z "${{ secrets.SMTP_PASS }}" ]; then
+  #           echo "❌ Required SMTP secrets are not set"
+  #           echo "Please add SMTP_HOST, SMTP_USER, and SMTP_PASS secrets to your repository settings"
+  #           exit 1
+  #         fi
+  #         
+  #         python3 scripts/send_keys.py \
+  #           --smtp-host "${{ secrets.SMTP_HOST }}" \
+  #           --smtp-user "${{ secrets.SMTP_USER }}" \
+  #           --smtp-pass "${{ secrets.SMTP_PASS }}" \
+  #           --smtp-port "${{ secrets.SMTP_PORT || '587' }}" \
+  #           --users-file users.yaml \
+  #           --terraform-dir terraform || {
+  #           echo "❌ Failed to send SSH keys via email"
+  #           exit 1
+  #         }
 
  
