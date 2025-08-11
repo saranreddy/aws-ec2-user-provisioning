@@ -229,8 +229,8 @@ jobs:
             echo "✅ SSH connection established"
           else
             echo "❌ Failed to establish SSH connection"
-            exit 1
-          fi
+              exit 1
+            fi
           
           # Make the script executable
           chmod +x scripts/install_users.sh
@@ -259,11 +259,11 @@ jobs:
               else
                 echo "❌ Failed to provision user $user"
               exit 1
-            fi
-          else
+              fi
+            else
               echo "❌ SSH key for $user not found"
-            exit 1
-          fi
+              exit 1
+            fi
           done
           
           echo "✅ All SSH keys installed on EC2 instance"
@@ -292,7 +292,7 @@ jobs:
           ")
           
           echo "📋 Users to verify: $USERS"
-          echo ""
+            echo ""
           
           # Test each user's SSH access with comprehensive verification
           for user in $USERS; do
@@ -311,9 +311,9 @@ jobs:
             else
               echo "   ❌ Basic SSH connection: FAILED"
               rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
+            exit 1
+          fi
+          
             echo "   └─ Testing user identity and home directory..."
             # Test user identity and home directory access
             if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "whoami && pwd && echo 'Home directory contents:' && ls -la"; then
@@ -321,9 +321,9 @@ jobs:
             else
               echo "   ❌ User identity and home directory: FAILED"
               rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
+            exit 1
+          fi
+          
             echo "   └─ Creating verification file in user's home directory..."
             # Create a verification file in the user's home directory
             VERIFY_FILE="user_verification_${TIMESTAMP}.txt"
@@ -333,9 +333,9 @@ jobs:
             else
               echo "   ❌ Verification file creation: FAILED"
               rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
+            exit 1
+          fi
+          
             echo "   └─ Testing file write permissions..."
             # Test file write permissions
             if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'Testing write permissions at $(date)' >> ~/$VERIFY_FILE && echo 'Write permissions test: SUCCESS'"; then
@@ -353,9 +353,9 @@ jobs:
             else
               echo "   ❌ File read access: FAILED"
               rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
+            exit 1
+          fi
+          
             echo "   └─ Testing SSH key authentication..."
             # Test SSH key authentication specifically
             if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o PasswordAuthentication=no $user@$EC2_IP "echo 'SSH key authentication successful for $user'"; then
@@ -363,9 +363,9 @@ jobs:
             else
               echo "   ❌ SSH key authentication: FAILED"
               rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
+            exit 1
+          fi
+          
             # Clean up temporary key
             rm -f "$TEMP_KEY"
             
@@ -538,6 +538,19 @@ jobs:
             echo "📄 Private key length: ${#private_key_content} characters"
             echo ""
             
+            # Debug: Show private key content preview
+            echo "🔑 Private key content preview (first 100 chars):"
+            echo "${private_key_content:0:100}..."
+            echo ""
+            
+            # Test: Save email content to file for verification
+            echo "🧪 Saving email content to test file for verification..."
+            echo "$email_content" > "/tmp/email_test_${username}.txt"
+            echo "✅ Test email file created: /tmp/email_test_${username}.txt"
+            echo "📁 Test file size: $(wc -c < "/tmp/email_test_${username}.txt") bytes"
+            echo "📁 Test file line count: $(wc -l < "/tmp/email_test_${username}.txt") lines"
+            echo ""
+            
             # Try multiple methods to send email
             local email_sent=false
             
@@ -555,8 +568,25 @@ jobs:
               smtp_commands="${smtp_commands}.\r\n"
               smtp_commands="${smtp_commands}QUIT\r\n"
               
+              # Debug: Show SMTP commands being sent
+              echo "📤 SMTP commands being sent:"
+              echo "EHLO github-actions"
+              echo "MAIL FROM: <noreply@mailhost.umb.com>"
+              echo "RCPT TO: <$TEST_EMAIL>"
+              echo "DATA"
+              echo "[EMAIL CONTENT - ${#email_content} characters]"
+              echo "."
+              echo "QUIT"
+              echo ""
+              
               # Save SMTP commands to file
               echo -e "$smtp_commands" > /tmp/smtp_commands.txt
+              
+              # Debug: Show file contents
+              echo "📁 SMTP commands file contents (first 500 chars):"
+              head -c 500 /tmp/smtp_commands.txt
+              echo "..."
+              echo ""
               
               # Send via /dev/tcp
               if timeout 30 bash -c "exec 3<>/dev/tcp/$SMTP_HOST/$SMTP_PORT; cat /tmp/smtp_commands.txt >&3; cat <&3" 2>/dev/null | grep -q "250"; then
