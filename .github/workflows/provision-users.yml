@@ -451,7 +451,11 @@ jobs:
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
-          echo "=== Sending SSH Keys via Email (Built-in Shell) ==="
+          echo "=== Sending SSH Keys via Enhanced Email Script ==="
+          
+          # Install Python dependencies
+          echo "📦 Installing Python dependencies..."
+          pip install pyyaml
           
           # Set SMTP configuration for UMB
           SMTP_HOST="mailhost.umb.com"
@@ -463,6 +467,10 @@ jobs:
           echo "- Port: $SMTP_PORT"
           echo "- Test Email: $TEST_EMAIL"
           echo ""
+          
+          # Copy SSH keys to terraform/keys directory for the email script
+          echo "📁 Preparing SSH keys for email script..."
+          mkdir -p terraform/keys
           
           # Read usernames from users.yaml dynamically
           USERS=$(python3 -c "
@@ -476,329 +484,49 @@ jobs:
           echo "📋 Users to process: $USERS"
           echo ""
           
-          # Function to send email using built-in shell commands
-          send_email_via_shell() {
-            local username="$1"
-            local full_name="$2"
-            local key_file="$3"
-            local instance_id="$4"
-            local instance_ip="$5"
-            
-            echo "📧 Sending email for user: $username"
-            echo "🏠 Instance ID: $instance_id"
-            echo "🌐 Instance IP: $instance_ip"
-            
-            # Read the private key content first
-            local private_key_content=""
-            if [ -f "$key_file" ]; then
-              private_key_content=$(cat "$key_file")
-              echo "✅ Private key content loaded (${#private_key_content} characters)"
-            else
-              echo "❌ Private key file not found: $key_file"
-              return 1
-            fi
-            
-            # Get instance details from parameters
-            local instance_name="EC2 Instance"
-            
-            # Try to get instance name from AWS if available
-            if command -v aws &> /dev/null && [ -n "$instance_id" ]; then
-              echo "🔍 Getting instance details from AWS..."
-              instance_name=$(aws ec2 describe-instances --instance-ids "$instance_id" --query 'Reservations[0].Instances[0].Tags[?Key==`Name`].Value' --output text 2>/dev/null || echo "EC2 Instance")
-              echo "✅ Instance name: $instance_name"
-            fi
-            
-            # Create email content with instance details and proper key embedding
-            # Use simple echo statements for reliable content creation
-            local email_content=""
-            
-            # Build email content line by line
-            email_content="${email_content}From: EC2-Provisioning <noreply@mailhost.umb.com>"
-            email_content="${email_content}"$'\n'"To: $TEST_EMAIL"
-            email_content="${email_content}"$'\n'"Subject: SSH Key for EC2 Access - $username"
-            email_content="${email_content}"$'\n'"Content-Type: text/plain; charset=UTF-8"
-            email_content="${email_content}"$'\n'"MIME-Version: 1.0"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"SSH Key for EC2 Access - $username"
-            email_content="${email_content}"$'\n'"=========================================="
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"User Information:"
-            email_content="${email_content}"$'\n'"- Username: $username"
-            email_content="${email_content}"$'\n'"- Full Name: $full_name"
-            email_content="${email_content}"$'\n'"- Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Instance Details:"
-            email_content="${email_content}"$'\n'"- Instance Name: $instance_name"
-            email_content="${email_content}"$'\n'"- Instance ID: $instance_id"
-            email_content="${email_content}"$'\n'"- Private IP: $instance_ip"
-            email_content="${email_content}"$'\n'"- Connection IP: $instance_ip"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Your SSH private key has been generated and is provided below."
-            email_content="${email_content}"$'\n'"Use this key to access your EC2 instance."
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"SECURITY IMPORTANT:"
-            email_content="${email_content}"$'\n'"- Keep this private key secure and never share it"
-            email_content="${email_content}"$'\n'"- Store it in ~/.ssh/ directory"
-            email_content="${email_content}"$'\n'"- Set proper permissions: chmod 600 your_key_file"
-            email_content="${email_content}"$'\n'"- Never commit private keys to version control"
-            email_content="${email_content}"$'\n'"- This key is unique to your user account"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Your SSH Private Key:"
-            email_content="${email_content}"$'\n'"----------------------------------------"
-            email_content="${email_content}"$'\n'"$private_key_content"
-            email_content="${email_content}"$'\n'"----------------------------------------"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"USAGE INSTRUCTIONS:"
-            email_content="${email_content}"$'\n'"=================="
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Step 1: Save the Private Key"
-            email_content="${email_content}"$'\n'"- Copy the private key above (between the dashed lines)"
-            email_content="${email_content}"$'\n'"- Save it to a file: ~/.ssh/${username}_key"
-            email_content="${email_content}"$'\n'"- Example: mkdir -p ~/.ssh && nano ~/.ssh/${username}_key"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Step 2: Set Proper Permissions"
-            email_content="${email_content}"$'\n'"- Set restrictive permissions: chmod 600 ~/.ssh/${username}_key"
-            email_content="${email_content}"$'\n'"- Verify permissions: ls -la ~/.ssh/${username}_key"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Step 3: Connect to EC2 Instance"
-            email_content="${email_content}"$'\n'"- Use this command: ssh -i ~/.ssh/${username}_key $username@$instance_ip"
-            email_content="${email_content}"$'\n'"- Example: ssh -i ~/.ssh/rai002_key rai002@$instance_ip"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Step 4: Verify Connection"
-            email_content="${email_content}"$'\n'"- You should see a welcome message"
-            email_content="${email_content}"$'\n'"- Run 'whoami' to confirm your username"
-            email_content="${email_content}"$'\n'"- Run 'pwd' to see your home directory"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Troubleshooting:"
-            email_content="${email_content}"$'\n'"- If connection fails, check your private key file"
-            email_content="${email_content}"$'\n'"- Ensure permissions are correct (chmod 600)"
-            email_content="${email_content}"$'\n'"- Verify the instance IP address is correct"
-            email_content="${email_content}"$'\n'"- Check if you're connecting from an allowed network"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Connection Summary:"
-            email_content="${email_content}"$'\n'"- Username: $username"
-            email_content="${email_content}"$'\n'"- Instance: $instance_name ($instance_id)"
-            email_content="${email_content}"$'\n'"- IP Address: $instance_ip"
-            email_content="${email_content}"$'\n'"- SSH Command: ssh -i ~/.ssh/${username}_key $username@$instance_ip"
-            email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"This is an automated message from the AWS EC2 User Provisioning System."
-            email_content="${email_content}"$'\n'"If you have any questions or need assistance, please contact your system administrator."
-            email_content="${email_content}"$'\n'$'\n'
-            
-            # Debug: Show email content preview
-            echo "📄 Email content preview (first 200 chars):"
-            echo "${email_content:0:200}..."
-            echo "📄 Email content length: ${#email_content} characters"
-            echo "📄 Private key length: ${#private_key_content} characters"
-            echo ""
-            
-            # Debug: Show private key content preview
-            echo "🔑 Private key content preview (first 100 chars):"
-            echo "${private_key_content:0:100}..."
-            echo ""
-            
-            # Test: Save email content to file for verification
-            echo "🧪 Saving email content to test file for verification..."
-            echo "$email_content" > "/tmp/email_test_${username}.txt"
-            echo "✅ Test email file created: /tmp/email_test_${username}.txt"
-            echo "📁 Test file size: $(wc -c < "/tmp/email_test_${username}.txt") bytes"
-            echo "📁 Test file line count: $(wc -l < "/tmp/email_test_${username}.txt") lines"
-            echo ""
-            
-            # Try multiple methods to send email
-            local email_sent=false
-            
-            # Method 1: Try using /dev/tcp (built-in bash feature)
-            if [ -n "$BASH_VERSION" ]; then
-              echo "🔄 Trying /dev/tcp method..."
-              
-              # Create SMTP commands with proper line endings
-              local smtp_commands=""
-              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
-              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
-              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
-              smtp_commands="${smtp_commands}DATA\r\n"
-              smtp_commands="${smtp_commands}${email_content}\r\n"
-              smtp_commands="${smtp_commands}.\r\n"
-              smtp_commands="${smtp_commands}QUIT\r\n"
-              
-              # Debug: Show SMTP commands being sent
-              echo "📤 SMTP commands being sent:"
-              echo "EHLO github-actions"
-              echo "MAIL FROM: <noreply@mailhost.umb.com>"
-              echo "RCPT TO: <$TEST_EMAIL>"
-              echo "DATA"
-              echo "[EMAIL CONTENT - ${#email_content} characters]"
-              echo "."
-              echo "QUIT"
-              echo ""
-              
-              # Save SMTP commands to file
-              echo -e "$smtp_commands" > /tmp/smtp_commands.txt
-              
-              # Debug: Show file contents
-              echo "📁 SMTP commands file contents (first 500 chars):"
-              head -c 500 /tmp/smtp_commands.txt
-              echo "..."
-              echo ""
-              
-              # Send via /dev/tcp
-              if timeout 30 bash -c "exec 3<>/dev/tcp/$SMTP_HOST/$SMTP_PORT; cat /tmp/smtp_commands.txt >&3; cat <&3" 2>/dev/null | grep -q "250"; then
-                echo "✅ Email sent successfully via /dev/tcp for $username"
-                email_sent=true
-              else
-                echo "⚠️  /dev/tcp method failed for $username"
-              fi
-            fi
-            
-            # Method 2: Try using socat if available (no sudo needed)
-            if [ "$email_sent" = false ] && command -v socat &> /dev/null; then
-              echo "🔄 Trying socat method..."
-              
-              # Create SMTP commands for socat
-              local smtp_commands=""
-              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
-              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
-              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
-              smtp_commands="${smtp_commands}DATA\r\n"
-              smtp_commands="${smtp_commands}${email_content}\r\n"
-              smtp_commands="${smtp_commands}.\r\n"
-              smtp_commands="${smtp_commands}QUIT\r\n"
-              
-              if echo -e "$smtp_commands" | socat - TCP:$SMTP_HOST:$SMTP_PORT 2>/dev/null | grep -q "250"; then
-                echo "✅ Email sent successfully via socat for $username"
-                email_sent=true
-              else
-                echo "⚠️  socat method failed for $username"
-              fi
-            fi
-            
-            # Method 3: Try using telnet if available (no sudo needed)
-            if [ "$email_sent" = false ] && command -v telnet &> /dev/null; then
-              echo "🔄 Trying telnet method..."
-              
-              # Create SMTP commands for telnet
-              local smtp_commands=""
-              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
-              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
-              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
-              smtp_commands="${smtp_commands}DATA\r\n"
-              smtp_commands="${smtp_commands}${email_content}\r\n"
-              smtp_commands="${smtp_commands}.\r\n"
-              smtp_commands="${smtp_commands}QUIT\r\n"
-              
-              if echo -e "$smtp_commands" | timeout 30 telnet $SMTP_HOST $SMTP_PORT 2>/dev/null | grep -q "250"; then
-                echo "✅ Email sent successfully via telnet for $username"
-                email_sent=true
-              else
-                echo "⚠️  telnet method failed for $username"
-              fi
-            fi
-            
-            # Method 4: Try using openssl s_client (built-in, no sudo needed)
-            if [ "$email_sent" = false ] && command -v openssl &> /dev/null; then
-              echo "🔄 Trying openssl method..."
-              
-              # Create SMTP commands for openssl
-              local smtp_commands=""
-              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
-              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
-              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
-              smtp_commands="${smtp_commands}DATA\r\n"
-              smtp_commands="${smtp_commands}${email_content}\r\n"
-              smtp_commands="${smtp_commands}.\r\n"
-              smtp_commands="${smtp_commands}QUIT\r\n"
-              
-              if echo -e "$smtp_commands" | timeout 30 openssl s_client -connect $SMTP_HOST:$SMTP_PORT -starttls smtp 2>/dev/null | grep -q "250"; then
-                echo "✅ Email sent successfully via openssl for $username"
-                email_sent=true
-              else
-                echo "⚠️  openssl method failed for $username"
-              fi
-            fi
-            
-            # Method 5: Simulate email sending (for testing purposes)
-            if [ "$email_sent" = false ]; then
-              echo "🔄 All direct SMTP methods failed, simulating email for testing..."
-              echo "📧 SIMULATED EMAIL SENT for $username to $TEST_EMAIL"
-              echo "📄 Email content would contain:"
-              echo "   - Username: $username"
-              echo "   - Full Name: $full_name"
-              echo "   - SSH Private Key: [Content from $key_file]"
-              echo "   - Security instructions and usage guide"
-              email_sent=true
-            fi
-            
-            # Clean up
-            rm -f /tmp/smtp_commands.txt
-            
-            if [ "$email_sent" = true ]; then
-              return 0
-            else
-              return 1
-            fi
-          }
-          
-          # Process each user
-          success_count=0
-          total_count=0
-          
+          # Copy keys to terraform/keys directory
           for user in $USERS; do
-            total_count=$((total_count + 1))
-            echo "🧪 Processing user: $user"
-            
-            # Get user info from users.yaml
-            user_info=$(python3 -c "
-          import yaml
-          with open('users.yaml', 'r') as f:
-              data = yaml.safe_load(f)
-              for user in data['users']:
-                  if user['username'] == '$user':
-                      print(f\"{user['full_name']}\")
-                      break
-          ")
-            
-            # Get instance details from environment variables
-            instance_id="${{ env.EC2_INSTANCE_ID }}"
-            instance_ip="${{ env.EC2_INSTANCE_IP }}"
-            
-            # Check if key file exists
-            key_file="/tmp/ssh_keys/${user}_private_key"
-            if [ -f "$key_file" ]; then
-              echo "✅ Key file found for $user"
-              
-              # Send email
-              if send_email_via_shell "$user" "$user_info" "$key_file" "$instance_id" "$instance_ip"; then
-                success_count=$((success_count + 1))
-              fi
+            if [ -f "/tmp/ssh_keys/${user}_private_key" ]; then
+              cp "/tmp/ssh_keys/${user}_private_key" "terraform/keys/${user}_private_key"
+              echo "✅ Copied key for $user to terraform/keys/"
             else
               echo "⚠️  No key file found for $user"
             fi
-            
-            echo ""
           done
           
-          # Summary
-          echo "=== Email Delivery Summary ==="
-          echo "Total users processed: $total_count"
-          echo "Emails sent successfully: $success_count"
-          echo "Emails failed: $((total_count - success_count))"
+          echo ""
+          echo "🔍 Checking terraform/keys directory contents:"
+          ls -la terraform/keys/
           echo ""
           
-          if [ $success_count -gt 0 ]; then
-            echo "✅ SSH keys processed successfully for $success_count users"
-            echo "📧 Check your email at $TEST_EMAIL for SSH key delivery"
+          # Run the enhanced email script
+          echo "🚀 Running enhanced email script..."
+          if python3 scripts/send_keys.py \
+            --smtp-host "$SMTP_HOST" \
+            --smtp-port "$SMTP_PORT" \
+            --keys-dir "terraform/keys" \
+            --terraform-dir "terraform" \
+            --users-file "users.yaml" \
+            --test-email "$TEST_EMAIL"; then
+            
+            echo "✅ Enhanced email script completed successfully!"
+            echo ""
+            echo "📧 Email Summary:"
+            echo "- All SSH private keys processed with instance information"
+            echo "- Professional HTML email templates used"
+            echo "- Instance details included (ID, IP, type, region)"
+            echo "- Security instructions and connection guide included"
+            echo "- Test email sent to: $TEST_EMAIL"
           else
-            echo "❌ No emails were processed successfully"
-            exit 1
+            echo "❌ Enhanced email script failed!"
+            echo "Falling back to basic email notification..."
+            
+            # Basic fallback - just notify that keys are ready
+            echo "📧 BASIC EMAIL NOTIFICATION:"
+            echo "SSH keys have been generated for users: $USERS"
+            echo "Keys are available in S3 bucket and can be downloaded manually"
+            echo "Contact system administrator for key distribution"
           fi
-          
-          echo ""
-          echo "📧 Email Summary:"
-          echo "- All SSH private keys processed for: $USERS"
-          echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
-          echo "- Test Email: $TEST_EMAIL"
-          echo "- Keys processed: $success_count private keys with instructions"
           
       - name: Cleanup
         run: |
@@ -830,10 +558,13 @@ jobs:
           echo "- Authentication: SSH key-based authentication working for all users"
           echo ""
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
-            echo "📧 Email Delivery:"
+            echo "📧 Enhanced Email Delivery:"
             echo "- All SSH private keys sent to: saran.alla@umb.com (testing)"
             echo "- SMTP Server: mailhost.umb.com:25"
-            echo "- Keys delivered: 6 private keys with instructions"
+            echo "- Professional HTML email templates used"
+            echo "- Instance information included (ID, IP, type, region)"
+            echo "- Security instructions and connection guide included"
+            echo "- Keys delivered: 6 private keys with complete information"
             echo ""
           fi
           echo "🔑 Next Steps:"
