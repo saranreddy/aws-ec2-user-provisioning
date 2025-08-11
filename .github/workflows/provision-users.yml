@@ -607,6 +607,23 @@ jobs:
           echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
           echo "✅ Bucket name stored for Terraform: $BUCKET_NAME"
           
+          # Download public keys and store content for Terraform
+          echo "Downloading public keys for Terraform variables..."
+          mkdir -p /tmp/terraform_keys
+          
+          for user in alice bob charlie diana eve; do
+            echo "Downloading public key for $user..."
+            if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key; then
+              # Read the key content and escape it for Terraform
+              KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
+              echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV
+              echo "✅ Public key downloaded for $user"
+            else
+              echo "❌ Failed to download public key for $user"
+              exit 1
+            fi
+          done
+          
           # Clean up temporary files
           rm -rf /tmp/ssh_keys /tmp/key_metadata.json
           echo "✅ Temporary files cleaned up"
@@ -981,6 +998,7 @@ jobs:
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
+              -var="user_public_keys={\"alice\"=\"${{ env.user_public_keys_alice }}\",\"bob\"=\"${{ env.user_public_keys_bob }}\",\"charlie\"=\"${{ env.user_public_keys_charlie }}\",\"diana\"=\"${{ env.user_public_keys_diana }}\",\"eve\"=\"${{ env.user_public_keys_eve }}\"}" \
               -detailed-exitcode || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
@@ -996,6 +1014,7 @@ jobs:
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
+              -var="user_public_keys={\"alice\"=\"${{ env.user_public_keys_alice }}\",\"bob\"=\"${{ env.user_public_keys_bob }}\",\"charlie\"=\"${{ env.user_public_keys_charlie }}\",\"diana\"=\"${{ env.user_public_keys_diana }}\",\"eve\"=\"${{ env.user_public_keys_eve }}\"}" \
               -out=tfplan || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"

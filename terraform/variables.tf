@@ -29,6 +29,12 @@ variable "ssh_keys_bucket_name" {
   default     = "ec2-user-provisioning-default"
 }
 
+variable "user_public_keys" {
+  description = "Map of username to public key content for direct installation"
+  type        = map(string)
+  default     = {}
+}
+
 variable "ssh_private_key_path" {
   description = "Path to the private SSH key for connecting to EC2 instances"
   type        = string

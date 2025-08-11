@@ -142,7 +142,11 @@ resource "null_resource" "provision_users" {
     inline = [
       "echo 'Starting user provisioning on instance ${each.value}'",
       "sudo yum update -y || true",
-      "sudo yum install -y openssh-clients || true"
+      "sudo yum install -y openssh-clients awscli || true",
+      "echo 'Configuring AWS credentials for S3 access...'",
+      "mkdir -p ~/.aws",
+      "echo '[default]' > ~/.aws/config",
+      "echo 'region = ${var.aws_region}' >> ~/.aws/config"
     ]
   }
 
@@ -163,8 +167,9 @@ resource "null_resource" "provision_users" {
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh",
           "sudo chmod 700 /home/${user.username}/.ssh",
 
-          # Install public key from S3 to authorized_keys
-          "echo '${try(data.aws_s3_object.user_public_keys[user.username].body, "# Key not available during validation")}' | sudo tee /home/${user.username}/.ssh/authorized_keys",
+          # Install public key directly from variable
+          "echo 'Installing SSH key for ${user.username}...'",
+          "echo '${var.user_public_keys[user.username]}' | sudo tee /home/${user.username}/.ssh/authorized_keys",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/authorized_keys",
           "sudo chmod 600 /home/${user.username}/.ssh/authorized_keys",
 
