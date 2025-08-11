@@ -1,422 +1,250 @@
-# AWS EC2 User Provisioning with Terraform and GitHub Actions
+# 🚀 AWS EC2 User Provisioning System
 
-This project automates user provisioning on AWS EC2 instances using Terraform and GitHub Actions. It creates unique Linux user accounts and SSH key pairs for each user, then emails the private keys to users.
+A comprehensive, automated system for provisioning users on AWS EC2 instances with secure SSH key management and intelligent email delivery.
 
-## 🚀 Features
+## ✨ Features
 
-- ✅ **Automated User Provisioning**: Creates Linux user accounts on EC2 instances
-- ✅ **Unique SSH Key Pairs**: Generates individual SSH keys for each user
-- ✅ **Cross-Instance Access**: Same username/key works across all EC2 instances
-- ✅ **Email Delivery**: Automatically emails SSH private keys to users
-- ✅ **GitHub Actions Integration**: Fully automated CI/CD pipeline
-- ✅ **Dry Run Mode**: Test provisioning without making changes
-- ✅ **Idempotent Operations**: Safe to re-run without duplicating users
-- ✅ **Amazon Linux 2 Support**: Optimized for Amazon Linux 2 EC2 instances
-- ✅ **Enterprise-Grade Security**: OIDC-based authentication, input validation, timeout management
+### 🔐 **Secure User Management**
+- **Automated user creation** on AWS EC2 instances
+- **SSH key generation** and distribution
+- **Individual user emails** - each user receives their key at their own email address
+- **Key persistence** - existing users maintain access across workflow runs
 
-## 📁 Project Structure
+### 📧 **Smart Email System**
+- **Python-based SMTP** implementation for reliability
+- **Private keys as attachments** for easy download
+- **Selective email delivery** - only new users receive emails
+- **Complete information** - private key, IP address, instance name, user ID
 
-```
-aws-ec2-user-provisioning/
-├── .github/
-│   └── workflows/
-│       └── provision-users.yml    # GitHub Actions workflow
-├── terraform/
-│   ├── main.tf                    # Main Terraform configuration
-│   ├── variables.tf               # Input variables
-│   ├── versions.tf                # Provider versions
-│   └── keys/                      # Generated SSH keys (gitignored)
-├── scripts/
-│   ├── send_keys.py               # Email script for SSH keys
-│   ├── test_workflow.sh           # Comprehensive validation script
-│   └── quick_test.sh              # Quick validation script
-├── users.yaml                     # User configuration file
-├── README.md                      # This file
-└── .gitignore                     # Git ignore rules
-```
+### 🏗️ **Infrastructure Management**
+- **Terraform automation** for EC2 provisioning
+- **GitHub Actions workflow** with Docker runner
+- **S3 key storage** with persistence across runs
+- **Comprehensive logging** and error handling
 
-## 🛠️ Prerequisites
+## 🎯 **How It Works**
 
-### Required Software
-- **Terraform** >= 1.0
-- **Python** >= 3.6
-- **Git** (for version control)
-- **AWS CLI** (for local testing)
+### **1. User Provisioning**
+- Reads user configuration from `users.yaml`
+- Generates unique SSH key pairs for each user
+- Creates user accounts on EC2 instances
+- Installs public keys for SSH access
 
-### Required AWS Resources
-- **EC2 Instances**: Running Amazon Linux 2 instances with public IPs
-- **SSH Access**: Private key to connect to EC2 instances
-- **IAM Permissions**: Read access to EC2 instances
-- **OIDC Role**: Configured for GitHub Actions (see AWS OIDC Configuration below)
+### **2. Key Management**
+- **Fixed S3 bucket** (`ec2-user-provisioning-keys`) for key persistence
+- **Existing users**: Keys preserved, no regeneration
+- **New users**: New keys generated and stored
+- **Automatic key rotation** when needed
 
-## 🔧 AWS OIDC Configuration
+### **3. Email Delivery**
+- **New users**: Receive complete email with key attachment
+- **Existing users**: No emails sent (they already have access)
+- **Individual delivery**: Each user gets their key at their own email address
+- **Professional formatting** with complete instructions
 
-### Required GitHub Secrets
-```bash
-# AWS OIDC Configuration
-aws_ec2_creation_role=cat-infra-oidc-githubactions
+## 🚀 **Quick Start**
 
-# SMTP Configuration (for email functionality)
-SMTP_HOST=your-smtp-server.com
-SMTP_USER=your-smtp-username
-SMTP_PASS=your-smtp-password
-SMTP_PORT=587  # Optional, defaults to 587
-```
+### **Prerequisites**
+- AWS CLI configured with appropriate permissions
+- GitHub repository with Actions enabled
+- EC2 instance running with SSH access
 
-### Optional GitHub Variables
-```bash
-# Session duration for AWS credentials (optional)
-GITHUBACTIONSAPPSESSION=3600  # Defaults to 3600 seconds
-```
-
-### AWS OIDC Role Setup
-
-1. **Create OIDC Role in AWS**:
-   ```bash
-   # Role ARN format
-   arn:aws:iam::YOUR_ACCOUNT_ID:role/cat-infra-oidc-githubactions
-   ```
-
-2. **Trust Policy**:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {
-           "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
-         },
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-           },
-           "StringLike": {
-             "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:*"
-           }
-         }
-       }
-     ]
-   }
-   ```
-
-3. **Permissions Policy**:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": [
-           "ec2:DescribeInstances",
-           "ec2:DescribeInstanceStatus"
-         ],
-         "Resource": "*"
-       }
-     ]
-   }
-   ```
-
-## 📋 Configuration
-
-### 1. User Configuration (`users.yaml`)
-
-Define users in the `users.yaml` file:
+### **1. Configure Users**
+Edit `users.yaml` to define your users:
 
 ```yaml
 users:
-  - username: rai002
-    email: raghavee.ai@umb.com
-    full_name: "Raghavee A"
-    
-  - username: hhe004
-    email: harsha-venkatraman.hegde@umb.com
-    full_name: "Hasha Venkararaman"
+- username: sta003
+  email: saran.alla@umb.com
+  full_name: "Saran Alla"
+
+- username: txs030
+  email: Tripatjeet.Singh@umb.com
+  full_name: "TJ"
 ```
 
-### 2. Workflow Inputs
+### **2. Set GitHub Secrets**
+Configure these secrets in your GitHub repository:
 
-When manually triggering the workflow, you can specify:
-
-- `instance_ids`: Comma-separated list of EC2 instance IDs (required)
-- `aws_account_id`: AWS Account ID (required, defaults to `872515261591`)
-- `aws_region`: AWS Region (required, choice between `us-east-2`, `us-west-2`, `us-east-1`)
-- `dry_run`: Enable dry run mode (optional, defaults to false)
-- `send_emails`: Send SSH keys to users via email (optional, defaults to true)
-
-## 🚀 Usage
-
-### Method 1: GitHub Actions (Recommended)
-
-1. **Fork/Clone** this repository
-2. **Configure Secrets** in GitHub repository settings:
-   - Go to Settings → Secrets and variables → Actions
-   - Add all required secrets (see AWS OIDC Configuration above)
-3. **Update Users**: Modify `users.yaml` with your user list
-4. **Run Workflow**:
-   - Go to Actions tab
-   - Select "Provision Users on AWS EC2 Instances"
-   - Click "Run workflow"
-   - Enter instance IDs (comma-separated)
-   - Choose options (dry run, email sending, etc.)
-
-### Method 2: Local Terraform
-
-1. **Install Dependencies**:
-   ```bash
-   # Install Terraform
-   brew install terraform  # macOS
-   
-   # Install Python dependencies
-   pip install pyyaml
-   ```
-
-2. **Configure AWS**:
-   ```bash
-   aws configure
-   ```
-
-3. **Run Terraform**:
-   ```bash
-   cd terraform
-   terraform init
-   terraform plan -var="instance_ids=[\"i-1234567890abcdef0\"]"
-   terraform apply -var="instance_ids=[\"i-1234567890abcdef0\"]"
-   ```
-
-4. **Send Emails** (optional):
-   ```bash
-   # Send keys to test email (port 25, no auth)
-   python3 scripts/send_keys.py \
-     --smtp-host "mailhost.umb.com" \
-     --smtp-port 25 \
-     --keys-dir /tmp/ssh_keys \
-     --test-email "saran.alla@umb.com"
-   
-   # Send keys to actual users (port 587, with auth)
-   python3 scripts/send_keys.py \
-     --smtp-host "smtp.gmail.com" \
-     --smtp-port 587 \
-     --smtp-user "your-email@gmail.com" \
-     --smtp-pass "your-app-password" \
-     --keys-dir /tmp/ssh_keys
-   ```
-
-## 🔧 Workflow Details
-
-### GitHub Actions Workflow
-
-The workflow consists of three main jobs:
-
-1. **Validate**: Checks Terraform configuration and user YAML
-2. **Provision Users**: Runs Terraform to create users and SSH keys
-3. **Send Email Keys**: Emails private keys to users
-
-### Terraform Process
-
-1. **Read User Configuration**: Parses `users.yaml`
-2. **Generate SSH Keys**: Creates unique key pairs for each user
-3. **Connect to EC2**: Uses SSH to connect to each instance
-4. **Create Users**: Adds Linux user accounts
-5. **Setup SSH**: Configures authorized_keys for each user
-
-### Email Process
-
-1. **Load Keys**: Reads generated private keys from the keys directory
-2. **Create Emails**: Generates personalized emails with complete information:
-   - Username and full name
-   - Instance details (ID, IP, type, region)
-   - Complete SSH private key content
-   - Security instructions and usage guide
-3. **Send via SMTP**: Delivers emails using Python's smtplib module
-
-## 🔒 Security Features
-
-- **OIDC Authentication**: No long-term AWS credentials stored
-- **Input Validation**: Instance IDs and regions are validated
-- **Secure SSH Keys**: 4096-bit RSA keys with proper permissions
-- **Secret Management**: All sensitive data uses GitHub secrets
-- **Error Handling**: Comprehensive error handling with detailed messages
-- **Timeout Management**: 10-minute timeout for plan, 15-minute for apply
-
-## 🧪 Testing
-
-### Validation Scripts
-
-Run comprehensive validation:
-
-```bash
-# Quick validation (recommended)
-bash scripts/quick_test.sh
-
-# Full validation (requires Terraform setup)
-bash scripts/test_workflow.sh
+```
+AWS_EC2_CREATION_ROLE=your-iam-role-name
+EC2_SSH_PRIVATE_KEY=your-ec2-ssh-private-key
 ```
 
-### Dry Run Mode
+### **3. Run the Workflow**
+1. Go to **Actions** tab in your GitHub repository
+2. Select **"Provision Users on AWS EC2 Instances"**
+3. Click **"Run workflow"**
+4. Configure parameters:
+   - **Instance ID**: Select your EC2 instance
+   - **AWS Account ID**: Your AWS account ID
+   - **AWS Region**: Your instance region
+   - **Send Emails**: Enable to send SSH keys via email
 
-Test the workflow without making changes:
+## 🔧 **Workflow Details**
 
-1. **GitHub Actions**: Enable "dry run" option when running workflow
-2. **Local**: Set `dry_run = true` in Terraform variables
-3. **Email Testing**: Use `--dry-run` flag with email script
+### **Jobs Overview**
+1. **Setup & Authentication**: AWS credentials and Terraform setup
+2. **User Provisioning**: Create users and generate SSH keys
+3. **Key Management**: Store keys in S3 with persistence
+4. **Email Delivery**: Send keys to new users only
+5. **Verification**: Test SSH access for all users
 
-### Validation Steps
+### **Key Persistence Logic**
+```
+First Run:
+├── Create S3 bucket: ec2-user-provisioning-keys
+├── Generate keys for all users
+└── Upload keys to S3
 
-The workflow includes several validation steps:
-
-- ✅ Terraform syntax validation
-- ✅ User YAML validation
-- ✅ SSH connectivity testing
-- ✅ Email template testing
-- ✅ Security scanning
-- ✅ Enterprise feature validation
-
-## 📊 Monitoring and Troubleshooting
-
-### Common Issues
-
-#### **AWS Credentials Fail**
-```bash
-# Check OIDC role configuration
-- Verify role exists: arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME
-- Check role permissions for EC2 access
-- Verify GitHub repository is configured for OIDC
+Subsequent Runs:
+├── Check existing keys in S3
+├── Download existing keys (preserve access)
+├── Generate new keys only for new users
+└── Send emails only to new users
 ```
 
-#### **SSH Connection Failed**
-```bash
-# Check EC2 instance configuration
-- Verify instances exist and are running
-- Check instances have public IP addresses
-- Validate SSH key file exists and is accessible
+### **Email Intelligence**
+- **New Users**: Full email with key attachment and instructions
+- **Existing Users**: No email sent (access maintained)
+- **Status Tracking**: Clear logging of who got emails and why
+
+## 📁 **Project Structure**
+
+```
+aws-ec2-user-provisioning/
+├── .github/workflows/
+│   └── provision-users.yml    # Main workflow
+├── scripts/
+│   ├── install_users.sh       # User installation script
+│   ├── send_keys.py          # Email delivery script
+│   └── run_example.sh        # Example usage script
+├── terraform/
+│   ├── main.tf               # EC2 instance configuration
+│   ├── variables.tf          # Variable definitions
+│   └── outputs.tf            # Output values
+├── users.yaml                # User configuration
+└── README.md                 # This file
 ```
 
-#### **Email Sending Fails**
-```bash
-# Check SMTP configuration
-- Verify SMTP_HOST, SMTP_USER, SMTP_PASS secrets are set
-- Test SMTP connection manually
-- Check firewall rules for SMTP access
-```
+## 🔒 **Security Features**
 
-#### **User Already Exists**
-```bash
-# Workflow is idempotent - safe to re-run
-- Existing users won't be duplicated
-- SSH keys will be updated if changed
-```
+### **SSH Key Management**
+- **4096-bit RSA keys** for strong encryption
+- **Individual key pairs** for each user
+- **Secure S3 storage** with AES256 encryption
+- **Proper file permissions** (chmod 600)
 
-### Logs and Outputs
+### **Access Control**
+- **IAM role-based authentication** for AWS operations
+- **SSH key-based authentication** for EC2 access
+- **User isolation** with separate home directories
+- **Audit logging** for all operations
 
-- **GitHub Actions**: Check workflow run logs
-- **Terraform**: Review plan and apply outputs
-- **Email Script**: Detailed sending logs with success/failure counts
+## 📧 **Email System**
 
-## 🔄 Maintenance
+### **SMTP Configuration**
+- **Server**: `mailhost.umb.com:25`
+- **Authentication**: None required (port 25)
+- **Encryption**: TLS when supported
+- **Fallback**: Graceful handling of connection issues
 
-### Adding New Users
+### **Email Content**
+- **User Information**: Username, full name, generation timestamp
+- **Instance Details**: ID, IP address, name, region
+- **Private Key**: Attached as downloadable file
+- **Usage Instructions**: Step-by-step connection guide
+- **Security Guidelines**: Best practices and warnings
 
-1. Add user to `users.yaml`
-2. Commit and push changes
-3. Run workflow (existing users won't be affected)
+## 🧪 **Testing & Verification**
 
-### Removing Users
+### **Dry Run Mode**
+Enable dry run to test without making changes:
+- No actual user creation
+- No key generation
+- No email sending
+- Full workflow validation
 
-1. Remove user from `users.yaml`
-2. Run workflow (existing users remain on instances)
-3. Manually remove users from instances if needed
+### **Verification Process**
+- **SSH Connection Test**: Verify each user can connect
+- **File Operations**: Test read/write permissions
+- **Key Authentication**: Validate SSH key functionality
+- **User Environment**: Check home directory access
 
-### Updating User Information
+## 🚨 **Troubleshooting**
 
-1. Update user details in `users.yaml`
-2. Run workflow (only email will be updated)
+### **Common Issues**
 
-## 📝 Example Commands
+**SMTP Connection Failed**
+- Check network connectivity to mailhost.umb.com
+- Verify port 25 is not blocked
+- Check firewall settings
 
-### Local Development
+**User Access Denied**
+- Verify SSH key permissions (chmod 600)
+- Check EC2 security group settings
+- Confirm user exists on instance
 
-```bash
-# Initialize Terraform
-cd terraform
-terraform init
+**S3 Upload Failed**
+- Verify AWS credentials and permissions
+- Check S3 bucket creation permissions
+- Ensure region configuration is correct
 
-# Plan with specific instances
-terraform plan -var='instance_ids=["i-1234567890abcdef0"]'
+### **Debug Information**
+The workflow provides comprehensive logging:
+- **User processing status**
+- **Key generation details**
+- **S3 operation results**
+- **Email delivery status**
+- **Verification results**
 
-# Apply changes
-terraform apply -var='instance_ids=["i-1234567890abcdef0"]'
+## 📈 **Monitoring & Maintenance**
 
-# Test email script
-python3 ../scripts/send_keys.py \
-  --smtp-host "smtp.gmail.com" \
-  --smtp-user "admin@company.com" \
-  --smtp-pass "app-password" \
-  --dry-run
-```
+### **Workflow Monitoring**
+- **GitHub Actions logs** for detailed execution history
+- **S3 bucket contents** for key inventory
+- **Email delivery reports** for communication tracking
+- **User access verification** for security monitoring
 
-### GitHub Actions
+### **Regular Maintenance**
+- **Review user list** in `users.yaml`
+- **Monitor S3 bucket** for key storage
+- **Check email delivery** success rates
+- **Verify user access** on EC2 instances
 
-```bash
-# Trigger workflow manually
-gh workflow run "Provision Users on AWS EC2 Instances" \
-  -f instance_ids="i-1234567890abcdef0,i-0987654321fedcba0" \
-  -f dry_run=true
-```
+## 🤝 **Contributing**
 
-## 🏢 Enterprise Features
+### **Development Workflow**
+1. **Fork the repository**
+2. **Create feature branch**
+3. **Make changes** with proper testing
+4. **Submit pull request** with detailed description
 
-### **Enterprise-Grade Security**
-- ✅ OIDC-based AWS authentication
-- ✅ Input validation and sanitization
-- ✅ Secure SSH key generation
-- ✅ Proper secret management
-- ✅ Comprehensive error handling
+### **Testing Requirements**
+- **Test workflow execution** in dry run mode
+- **Verify email delivery** functionality
+- **Check key persistence** across multiple runs
+- **Validate user access** on test instances
 
-### **Performance & Reliability**
-- ✅ Timeout configurations for all operations
-- ✅ Error recovery mechanisms
-- ✅ Resource cleanup and management
-- ✅ Detailed logging and monitoring
+## 📄 **License**
 
-### **Monitoring & Observability**
-- ✅ Detailed provisioning summary output
-- ✅ Instance information capture
-- ✅ User provisioning status tracking
-- ✅ Artifact upload for audit trails
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## ✅ Enterprise Readiness Status
+## 🆘 **Support**
 
-**STATUS: PRODUCTION READY** ✅
+### **Getting Help**
+- **Check troubleshooting section** above
+- **Review workflow logs** in GitHub Actions
+- **Examine error messages** for specific issues
+- **Verify configuration** in users.yaml and secrets
 
-The workflow has been thoroughly tested and validated to meet enterprise-grade standards:
-
-- ✅ **Comprehensive error handling**
-- ✅ **Secure credential management**
-- ✅ **Input validation and sanitization**
-- ✅ **Proper timeout management**
-- ✅ **Detailed logging and monitoring**
-- ✅ **Enterprise-grade security practices**
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 🆘 Support
-
-For issues and questions:
-
-1. Check the troubleshooting section above
-2. Review GitHub Actions logs
-3. Run validation scripts to identify issues
-4. Open an issue with detailed error information
-5. Include relevant configuration and error messages
+### **Feature Requests**
+- **Submit issues** for bugs or problems
+- **Request enhancements** for new functionality
+- **Share use cases** for improvement ideas
 
 ---
 
-**Note**: This project is designed for production use and has been thoroughly tested for enterprise environments. 
+**Built with ❤️ for secure, automated AWS user management**
+
+*Last updated: August 2025* 
