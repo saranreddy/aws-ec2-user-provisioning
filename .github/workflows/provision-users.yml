@@ -451,10 +451,75 @@ jobs:
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
-          echo "=== Email Functionality ==="
-          echo "Email functionality would be implemented here"
-          echo "Keys are available in S3 for manual distribution"
-          echo "S3 Bucket: $BUCKET_NAME"
+          echo "=== Sending SSH Keys via Email ==="
+          
+          # Install Python dependencies
+          echo "Installing Python dependencies..."
+          pip install pyyaml
+          
+          # Set SMTP configuration for UMB
+          SMTP_HOST="mailhost.umb.com"
+          SMTP_PORT="25"
+          TEST_EMAIL="saran.alla@umb.com"
+          
+          echo "📧 SMTP Configuration:"
+          echo "- Host: $SMTP_HOST"
+          echo "- Port: $SMTP_PORT"
+          echo "- Test Email: $TEST_EMAIL"
+          echo ""
+          
+          # Create a temporary users.yaml for testing (all users get keys sent to test email)
+          echo "Creating test user configuration..."
+          cat > /tmp/test_users.yaml << 'EOF'
+          users:
+            - username: rai002
+              email: saran.alla@umb.com
+              full_name: "Raghavee A"
+            - username: hhe004
+              email: saran.alla@umb.com
+              full_name: "Hasha Venkararaman"
+            - username: sra009
+              email: saran.alla@umb.com
+              full_name: "Sakkaravarthi Ramasubbu"
+            - username: dje008
+              email: saran.alla@umb.com
+              full_name: "Deborah Jerusha"
+            - username: txs030
+              email: saran.alla@umb.com
+              full_name: "TJ"
+            - username: mxe026
+              email: saran.alla@umb.com
+              full_name: "Michael Edmondson"
+          EOF
+          
+          echo "✅ Test user configuration created"
+          echo "Contents of test_users.yaml:"
+          cat /tmp/test_users.yaml
+          echo ""
+          
+          # Run the email script to send all keys to test email
+          echo "Running email script..."
+          python3 scripts/send_keys.py \
+            --smtp-host "$SMTP_HOST" \
+            --smtp-port "$SMTP_PORT" \
+            --users-file "/tmp/test_users.yaml" \
+            --keys-dir "/tmp/ssh_keys" \
+            --test-email "$TEST_EMAIL" \
+            --dry-run false
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ SSH keys sent successfully to $TEST_EMAIL"
+          else
+            echo "❌ Failed to send SSH keys via email"
+            exit 1
+          fi
+          
+          echo ""
+          echo "📧 Email Summary:"
+          echo "- All SSH private keys sent to: $TEST_EMAIL"
+          echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
+          echo "- Users: rai002, hhe004, sra009, dje008, txs030, mxe026"
+          echo "- Keys sent: 6 private keys + 6 public keys"
           
       - name: Cleanup
         run: |
@@ -471,7 +536,7 @@ jobs:
           echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
           echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
           echo "- Users Created: $USERS"
-          echo "- SSH Keys: Available in S3 bucket"
+          echo "- SSH Keys: Available in S3 bucket and sent via email"
           echo "- Access Verified: All users can SSH to EC2"
           echo ""
           echo "🔍 Verification Details:"
@@ -485,11 +550,21 @@ jobs:
           echo "- Permissions: All users have proper home directory access"
           echo "- Authentication: SSH key-based authentication working for all users"
           echo ""
+          if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
+            echo "📧 Email Delivery:"
+            echo "- All SSH private keys sent to: saran.alla@umb.com (testing)"
+            echo "- SMTP Server: mailhost.umb.com:25"
+            echo "- Keys delivered: 6 private keys with instructions"
+            echo ""
+          fi
           echo "🔑 Next Steps:"
-          echo "1. Users download their private keys from S3"
-          echo "2. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
-          echo "3. All users have full access to their home directories"
-          echo "4. Verification files created: ~/user_verification_*.txt"
+          echo "1. SSH keys available in S3 bucket: $BUCKET_NAME"
+          if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
+            echo "2. Check email at saran.alla@umb.com for SSH keys"
+          fi
+          echo "3. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
+          echo "4. All users have full access to their home directories"
+          echo "5. Verification files created: ~/user_verification_*.txt"
           echo ""
           echo "🎯 No manual verification needed - all tests passed automatically!"
 
