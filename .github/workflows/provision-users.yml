@@ -624,7 +624,7 @@ jobs:
             fi
           done
           
-          # Note: Public keys will be passed to Terraform via environment variables
+          # Note: SSH keys are downloaded and will be used by Terraform
           
           # Clean up temporary files
           rm -rf /tmp/ssh_keys /tmp/key_metadata.json
@@ -848,15 +848,8 @@ jobs:
           # Convert single instance ID to Terraform list format
           echo "Converting instance ID to Terraform list format..."
           
-          # Create a terraform.tfvars file with proper list format
-          cd terraform
-          echo "instance_ids = [" > terraform.tfvars
-          echo "  \"$INSTANCE_ID\"" >> terraform.tfvars
-          echo "]" >> terraform.tfvars
-          
-          echo "instance_ids=terraform.tfvars" >> $GITHUB_OUTPUT
-          echo "Created terraform.tfvars with instance ID:"
-          cat terraform.tfvars
+          # Note: terraform.tfvars will be created later with all required variables
+          echo "Instance ID validated: $INSTANCE_ID"
           
       - name: Create Keys Directory
         run: |
@@ -895,30 +888,12 @@ jobs:
           set -e
           echo "=== Setting up Terraform S3 Backend ==="
           
-          BUCKET_NAME="terraform-state-ec2-user-provisioning"
+          # Use the same bucket as SSH keys for consistency
+          BUCKET_NAME="${{ env.ssh_keys_bucket_name }}"
           DYNAMODB_TABLE="terraform-state-lock"
           REGION="${{ inputs.aws_region }}"
           
-          # Create S3 bucket for Terraform state
-          echo "Creating S3 bucket: $BUCKET_NAME"
-          aws s3 mb s3://$BUCKET_NAME --region $REGION || {
-            echo "ℹ️  S3 bucket might already exist, checking..."
-            if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
-              echo "✅ S3 bucket $BUCKET_NAME already exists"
-            else
-              echo "❌ Failed to create or access S3 bucket"
-              exit 1
-            fi
-          }
-          
-          # Enable versioning on S3 bucket
-          echo "Enabling versioning on S3 bucket..."
-          aws s3api put-bucket-versioning \
-            --bucket $BUCKET_NAME \
-            --versioning-configuration Status=Enabled \
-            --region $REGION || {
-            echo "⚠️  Failed to enable versioning (bucket might have restrictions)"
-          }
+          echo "Using SSH keys bucket for Terraform state: $BUCKET_NAME"
           
           # Create DynamoDB table for state locking
           echo "Creating DynamoDB table: $DYNAMODB_TABLE"
@@ -970,6 +945,22 @@ jobs:
           }
           echo "✅ Terraform initialized successfully with local backend"
           echo "State will be stored locally in terraform.tfstate"
+          
+      - name: Create Terraform Variables File
+        run: |
+          set -e
+          cd terraform
+          echo "=== Creating Terraform Variables File ==="
+          
+          # Create terraform.tfvars with instance IDs
+          echo "instance_ids = [\"${{ github.event.inputs.instance_ids }}\"]" > terraform.tfvars
+          echo "aws_region = \"${{ inputs.aws_region }}\"" >> terraform.tfvars
+          echo "dry_run = ${{ github.event.inputs.dry_run }}" >> terraform.tfvars
+          echo "ssh_keys_bucket_name = \"${{ env.ssh_keys_bucket_name }}\"" >> terraform.tfvars
+          
+          echo "✅ terraform.tfvars created"
+          echo "File contents:"
+          cat terraform.tfvars
           
       - name: Terraform Plan
         id: plan
@@ -1244,7 +1235,7 @@ jobs:
           set -e
           echo "=== Downloading SSH Keys from S3 for Email Distribution ==="
           
-          BUCKET_NAME="terraform-state-ec2-user-provisioning"
+          BUCKET_NAME="${{ env.ssh_keys_bucket_name }}"
           
           # Create directory for downloaded keys
           mkdir -p user_keys_for_email
@@ -1287,12 +1278,12 @@ jobs:
           # Upload distribution package back to S3
           aws s3 cp user-ssh-keys-$TIMESTAMP.tar.gz \
             s3://$BUCKET_NAME/distributions/ \
-            --server-side-encryption AES256
+            --sse AES256
           
           # Create latest symlink
           aws s3 cp user-ssh-keys-$TIMESTAMP.tar.gz \
             s3://$BUCKET_NAME/distributions/user-ssh-keys-latest.tar.gz \
-            --server-side-encryption AES256
+            --sse AES256
           
           echo "✅ SSH keys downloaded and packaged for email distribution"
           echo "Package created: user-ssh-keys-$TIMESTAMP.tar.gz"
