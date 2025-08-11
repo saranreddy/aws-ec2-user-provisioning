@@ -211,7 +211,10 @@ jobs:
             exit 1
           fi
           
-          # Install each user's public key
+          # Make the script executable
+          chmod +x scripts/install_users.sh
+          
+          # Install each user's public key using the script
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
               echo "Installing key for user: $user"
@@ -219,23 +222,18 @@ jobs:
               # Read the public key content
               PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
               
-              # Install the key on EC2 using individual commands to avoid heredoc issues
-              echo "Creating user account for $user..."
-              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "sudo useradd -m -s /bin/bash $user 2>/dev/null || echo 'User $user already exists'"
-              
-              echo "Setting up SSH directory for $user..."
-              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "sudo mkdir -p /home/$user/.ssh && sudo chown $user:$user /home/$user/.ssh && sudo chmod 700 /home/$user/.ssh"
-              
-              echo "Installing SSH key for $user..."
-              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "echo '$PUBLIC_KEY' | sudo tee -a /home/$user/.ssh/authorized_keys && sudo chown $user:$user /home/$user/.ssh/authorized_keys && sudo chmod 600 /home/$user/.ssh/authorized_keys"
-              
-              echo "✅ SSH key installed for $user"
-              
-              echo "✅ Key installed for $user on EC2"
+              # Call the user provisioning script
+              echo "Running user provisioning script for $user..."
+              if ./scripts/install_users.sh "$user" "$PUBLIC_KEY" "$SSH_USER" "$EC2_IP"; then
+                echo "✅ User $user provisioned successfully"
+              else
+                echo "❌ Failed to provision user $user"
+                exit 1
+              fi
             else
               echo "❌ SSH key for $user not found"
-            exit 1
-          fi
+              exit 1
+            fi
           done
           
           echo "✅ All SSH keys installed on EC2 instance"
