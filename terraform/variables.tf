@@ -23,12 +23,6 @@ variable "instance_ids" {
   }
 }
 
-variable "ssh_keys_bucket_name" {
-  description = "Name of the S3 bucket containing SSH keys (created by the workflow)"
-  type        = string
-  default     = "ec2-user-provisioning-default"
-}
-
 variable "user_public_keys" {
   description = "Map of username to public key content for direct installation"
   type        = map(string)

@@ -10,100 +10,10 @@ data "local_file" "users_config" {
   filename = var.users_file
 }
 
-# S3-based SSH Key Management
-# Keys are pre-generated and stored in S3 bucket, then retrieved as needed
-
-# S3 bucket for storing SSH keys
-# Use the existing bucket created by the workflow
-data "aws_s3_bucket" "ssh_keys" {
-  bucket = var.ssh_keys_bucket_name
-}
-
-# Enable versioning for key history (only if not already enabled)
-resource "aws_s3_bucket_versioning" "ssh_keys_versioning" {
-  bucket = data.aws_s3_bucket.ssh_keys.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-  
-  # Prevent recreation if versioning is already enabled
-  lifecycle {
-    ignore_changes = [versioning_configuration]
-  }
-}
-
-# Enable server-side encryption (only if not already enabled)
-resource "aws_s3_bucket_server_side_encryption_configuration" "ssh_keys_encryption" {
-  bucket = data.aws_s3_bucket.ssh_keys.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-    bucket_key_enabled = true
-  }
-  
-  # Prevent recreation if encryption is already configured
-  lifecycle {
-    ignore_changes = [rule]
-  }
-}
-
-# Block public access to the keys bucket (only if not already configured)
-resource "aws_s3_bucket_public_access_block" "ssh_keys_pab" {
-  bucket = data.aws_s3_bucket.ssh_keys.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-  
-  # Prevent recreation if public access block is already configured
-  lifecycle {
-    ignore_changes = [block_public_acls, block_public_policy, ignore_public_acls, restrict_public_buckets]
-  }
-}
-
-# Fetch public keys from S3 for each user
-# Note: This will only work after keys are uploaded to S3
-# During validation, this data source may not be accessible
-data "aws_s3_object" "user_public_keys" {
-  for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
-
-  bucket = data.aws_s3_bucket.ssh_keys.bucket
-  key    = "keys/${each.key}_public_key"
-
-  depends_on = [data.aws_s3_bucket.ssh_keys]
-}
-
-# Verify all required keys exist in S3 before proceeding
-# This resource only runs during apply, not during validation
-resource "null_resource" "verify_keys_exist" {
-  for_each = var.dry_run ? {} : { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      echo "Checking if keys exist for user: ${each.key}"
-      aws s3 ls s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key || {
-        echo "ERROR: Public key for user ${each.key} not found in S3"
-        echo "Expected location: s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key"
-        echo "Please ensure keys are generated and uploaded before running Terraform"
-        exit 1
-      }
-      aws s3 ls s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key || {
-        echo "ERROR: Private key for user ${each.key} not found in S3"
-        echo "Expected location: s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key"
-        echo "Please ensure keys are generated and uploaded before running Terraform"
-        exit 1
-      }
-      echo "✅ Keys verified for user: ${each.key}"
-    EOT
-  }
-
-  triggers = {
-    users_hash = md5(data.local_file.users_config.content)
-    bucket_id  = data.aws_s3_bucket.ssh_keys.id
-  }
+# Data source to get instance information
+data "aws_instance" "instance" {
+  for_each    = { for instance_id in var.instance_ids : instance_id => instance_id }
+  instance_id = each.value
 }
 
 # Provision users on each EC2 instance
@@ -111,9 +21,9 @@ resource "null_resource" "provision_users" {
   for_each = { for instance_id in var.instance_ids : instance_id => instance_id }
 
   triggers = {
-    # Trigger when user list changes or when S3 keys change
+    # Trigger when user list changes or when SSH keys change
     users_hash   = md5(data.local_file.users_config.content)
-    s3_keys_hash = try(md5(join("", [for key in data.aws_s3_object.user_public_keys : key.body])), "no-keys-yet")
+    s3_keys_hash = try(md5(join("", [for key in var.user_public_keys : key])), "no-keys-yet")
     instance_id  = each.value
   }
 
@@ -131,7 +41,7 @@ resource "null_resource" "provision_users" {
 
   connection {
     type        = "ssh"
-    host        = data.aws_instance.instance[each.key].private_ip
+    host        = data.aws_instance.instance[each.key].public_ip
     user        = var.ssh_user
     private_key = file(var.ssh_private_key_path)
     timeout     = "5m"
@@ -150,11 +60,10 @@ resource "null_resource" "provision_users" {
     ]
   }
 
-  # Create users and add SSH keys from S3
+  # Create users and add SSH keys from variables
   provisioner "remote-exec" {
     inline = concat(
-      ["echo 'Creating users and setting up SSH keys from S3...'"],
-      ["echo 'Skipping YUM updates to avoid proxy timeout...'"],
+      ["echo 'Creating users and setting up SSH keys...'"],
       flatten([
         for user in yamldecode(data.local_file.users_config.content).users : [
           "echo 'Processing user: ${user.username}'",
@@ -197,33 +106,13 @@ resource "null_resource" "provision_users" {
           # Test key permissions
           "sudo -u ${user.username} test -r /home/${user.username}/.ssh/authorized_keys && echo '✅ Key file readable by ${user.username}' || echo '❌ Key file not readable by ${user.username}'",
 
-          "echo 'User ${user.username} provisioned successfully with S3-stored key'"
+          "echo 'User ${user.username} provisioned successfully'"
         ]
       ]),
-      ["echo 'User provisioning completed on instance ${each.value} using S3-stored keys'"]
+      ["echo 'User provisioning completed on instance ${each.value}'"]
     )
   }
 }
-
-# Data source to get instance information
-data "aws_instance" "instance" {
-  for_each    = { for instance_id in var.instance_ids : instance_id => instance_id }
-  instance_id = each.value
-}
-
-# Validate SSH private key file exists (commented out for debugging)
-# data "local_file" "ssh_private_key" {
-#   filename = var.ssh_private_key_path
-# 
-#   lifecycle {
-#     precondition {
-#       condition     = fileexists(var.ssh_private_key_path)
-#       error_message = "SSH private key file '${var.ssh_private_key_path}' does not exist. Please ensure the file exists and has correct permissions."
-#     }
-#   }
-# }
-
-
 
 # Output instance information
 output "provisioned_instances" {
