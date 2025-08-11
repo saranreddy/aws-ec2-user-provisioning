@@ -472,85 +472,73 @@ jobs:
           import sys
           from email.mime.text import MIMEText
           from email.mime.multipart import MIMEMultipart
+          from email.mime.application import MIMEApplication
           
           def send_ssh_key_email(username, full_name, private_key_content, instance_id, instance_ip, instance_name, smtp_host, smtp_port, recipient_email):
-              """Send SSH key email using Python SMTP"""
+              """Send SSH key email using Python SMTP with private key as attachment"""
               
-              # Create email message
+              # Create email message with multipart support
               msg = MIMEMultipart()
               msg['From'] = 'EC2-Provisioning <noreply@mailhost.umb.com>'
               msg['To'] = recipient_email
               msg['Subject'] = f'SSH Key for EC2 Access - {username}'
               
-              # Create email body
-              email_body = f"""SSH Key for EC2 Access - {username}
-          ==========================================
-          
-          User Information:
-          - Username: {username}
-          - Full Name: {full_name}
-          - Generated: {os.popen('date').read().strip()}
-          
-          Instance Details:
-          - Instance Name: {instance_name}
-          - Instance ID: {instance_id}
-          - Private IP: {instance_ip}
-          - Connection IP: {instance_ip}
-          
-          Your SSH private key has been generated and is provided below.
-          Use this key to access your EC2 instance.
-          
-          SECURITY IMPORTANT:
-          - Keep this private key secure and never share it
-          - Store it in ~/.ssh/ directory
-          - Set proper permissions: chmod 600 your_key_file
-          - Never commit private keys to version control
-          - This key is unique to your user account
-          
-          Your SSH Private Key:
-          ----------------------------------------
-          {private_key_content}
-          ----------------------------------------
-          
-          USAGE INSTRUCTIONS:
-          ==================
-          
-          Step 1: Save the Private Key
-          - Copy the private key above (between the dashed lines)
-          - Save it to a file: ~/.ssh/{username}_key
-          - Example: mkdir -p ~/.ssh && nano ~/.ssh/{username}_key
-          
-          Step 2: Set Proper Permissions
-          - Set restrictive permissions: chmod 600 ~/.ssh/{username}_key
-          - Verify permissions: ls -la ~/.ssh/{username}_key
-          
-          Step 3: Connect to EC2 Instance
-          - Use this command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
-          - Example: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
-          
-          Step 4: Verify Connection
-          - You should see a welcome message
-          - Run 'whoami' to confirm your username
-          - Run 'pwd' to see your home directory
-          
-          Troubleshooting:
-          - If connection fails, check your private key file
-          - Ensure permissions are correct (chmod 600)
-          - Verify the instance IP address is correct
-          - Check if you're connecting from an allowed network
-          
-          Connection Summary:
-          - Username: {username}
-          - Instance: {instance_name} ({instance_id})
-          - IP Address: {instance_ip}
-          - SSH Command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
-          
-          This is an automated message from the AWS EC2 User Provisioning System.
-          If you have any questions or need assistance, please contact your system administrator.
-          """
+              # Create email body (without the private key content)
+              email_body = f"SSH Key for EC2 Access - {username}\n"
+              email_body += "==========================================\n\n"
+              email_body += "User Information:\n"
+              email_body += f"- Username: {username}\n"
+              email_body += f"- Full Name: {full_name}\n"
+              email_body += f"- Generated: {os.popen('date').read().strip()}\n\n"
+              email_body += "Instance Details:\n"
+              email_body += f"- Instance Name: {instance_name}\n"
+              email_body += f"- Instance ID: {instance_id}\n"
+              email_body += f"- Private IP: {instance_ip}\n"
+              email_body += f"- Connection IP: {instance_ip}\n\n"
+              email_body += "Your SSH private key has been generated and is attached to this email.\n"
+              email_body += "Use this key to access your EC2 instance.\n\n"
+              email_body += "SECURITY IMPORTANT:\n"
+              email_body += "- Keep this private key secure and never share it\n"
+              email_body += "- Store it in ~/.ssh/ directory\n"
+              email_body += "- Set proper permissions: chmod 600 your_key_file\n"
+              email_body += "- Never commit private keys to version control\n"
+              email_body += "- This key is unique to your user account\n\n"
+              email_body += "USAGE INSTRUCTIONS:\n"
+              email_body += "==================\n\n"
+              email_body += "Step 1: Save the Private Key\n"
+              email_body += f"- Download the attached private key file: {username}_private_key\n"
+              email_body += "- Save it to your ~/.ssh/ directory\n"
+              email_body += f"- Example: mkdir -p ~/.ssh && save the attachment as ~/.ssh/{username}_key\n\n"
+              email_body += "Step 2: Set Proper Permissions\n"
+              email_body += f"- Set restrictive permissions: chmod 600 ~/.ssh/{username}_key\n"
+              email_body += f"- Verify permissions: ls -la ~/.ssh/{username}_key\n\n"
+              email_body += "Step 3: Connect to EC2 Instance\n"
+              email_body += f"- Use this command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}\n"
+              email_body += f"- Example: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}\n\n"
+              email_body += "Step 4: Verify Connection\n"
+              email_body += "- You should see a welcome message\n"
+              email_body += "- Run 'whoami' to confirm your username\n"
+              email_body += "- Run 'pwd' to see your home directory\n\n"
+              email_body += "Troubleshooting:\n"
+              email_body += "- If connection fails, check your private key file\n"
+              email_body += "- Ensure permissions are correct (chmod 600)\n"
+              email_body += "- Verify the instance IP address is correct\n"
+              email_body += "- Check if you're connecting from an allowed network\n\n"
+              email_body += "Connection Summary:\n"
+              email_body += f"- Username: {username}\n"
+              email_body += f"- Instance: {instance_name} ({instance_id})\n"
+              email_body += f"- IP Address: {instance_ip}\n"
+              email_body += f"- SSH Command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}\n\n"
+              email_body += "This is an automated message from the AWS EC2 User Provisioning System.\n"
+              email_body += "If you have any questions or need assistance, please contact your system administrator."
               
               # Attach the email body
               msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
+              
+              # Attach the private key as a file
+              key_attachment = MIMEApplication(private_key_content.encode('utf-8'), _subtype='txt')
+              key_attachment.add_header('Content-Disposition', 'attachment', filename=f'{username}_private_key')
+              msg.attach(key_attachment)
               
               try:
                   # Connect to SMTP server
@@ -570,6 +558,7 @@ jobs:
                   server.quit()
                   
                   print(f"✅ Email sent successfully for user {username}")
+                  print(f"📎 Private key attached as: {username}_private_key")
                   return True
                   
               except Exception as e:
