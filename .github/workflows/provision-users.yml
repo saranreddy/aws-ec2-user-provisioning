@@ -453,9 +453,54 @@ jobs:
         run: |
           echo "=== Sending SSH Keys via Email ==="
           
-          # Install Python dependencies
+          # Install Python dependencies using multiple methods
           echo "Installing Python dependencies..."
-          pip install pyyaml
+          PYTHON_DEPS_INSTALLED=false
+          
+          # Method 1: Try python3 -m pip
+          if command -v python3 &> /dev/null; then
+            echo "Python3 found, trying python3 -m pip..."
+            if python3 -m pip install pyyaml; then
+              echo "✅ pyyaml installed successfully via python3 -m pip"
+              PYTHON_DEPS_INSTALLED=true
+            else
+              echo "⚠️  python3 -m pip failed, trying alternative methods..."
+            fi
+          fi
+          
+          # Method 2: Try pip3
+          if [ "$PYTHON_DEPS_INSTALLED" = false ] && command -v pip3 &> /dev/null; then
+            echo "Trying pip3..."
+            if pip3 install pyyaml; then
+              echo "✅ pyyaml installed successfully via pip3"
+              PYTHON_DEPS_INSTALLED=true
+            else
+              echo "⚠️  pip3 failed, trying alternative methods..."
+            fi
+          fi
+          
+          # Method 3: Try apt-get (Docker runner fallback)
+          if [ "$PYTHON_DEPS_INSTALLED" = false ] && command -v apt-get &> /dev/null; then
+            echo "Trying apt-get (Docker runner fallback)..."
+            if apt-get update && apt-get install -y python3-yaml; then
+              echo "✅ pyyaml installed successfully via apt-get"
+              PYTHON_DEPS_INSTALLED=true
+            else
+              echo "⚠️  apt-get failed..."
+            fi
+          fi
+          
+          # Check if any method succeeded
+          if [ "$PYTHON_DEPS_INSTALLED" = false ]; then
+            echo "❌ Failed to install pyyaml using all methods"
+            echo "Available Python commands:"
+            command -v python3 || echo "python3: not found"
+            command -v pip3 || echo "pip3: not found"
+            command -v pip || echo "pip: not found"
+            echo "Available package managers:"
+            command -v apt-get || echo "apt-get: not found"
+            exit 1
+          fi
           
           # Set SMTP configuration for UMB
           SMTP_HOST="mailhost.umb.com"
