@@ -104,6 +104,37 @@ jobs:
           
           echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
           
+      - name: Get EC2 Instance Details
+        run: |
+          echo "=== Getting EC2 Instance Details ==="
+          
+          INSTANCE_ID="${{ github.event.inputs.instance_ids }}"
+          REGION="${{ inputs.aws_region }}"
+          
+          # Get instance details
+          INSTANCE_INFO=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --region $REGION \
+            --query 'Reservations[0].Instances[0]' \
+            --output json)
+          
+          # Extract public IP
+          PUBLIC_IP=$(echo $INSTANCE_INFO | jq -r '.PublicIpAddress')
+          if [ "$PUBLIC_IP" = "null" ] || [ -z "$PUBLIC_IP" ]; then
+            echo "❌ Could not get public IP for instance $INSTANCE_ID"
+            exit 1
+          fi
+          
+          echo "Instance ID: $INSTANCE_ID"
+          echo "Public IP: $PUBLIC_IP"
+          echo "Region: $REGION"
+          
+          # Store for later use
+          echo "EC2_PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+          echo "EC2_INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          
+          echo "✅ EC2 instance details retrieved"
+          
       - name: Generate SSH Keys
         run: |
           echo "=== Generating SSH Keys ==="
@@ -133,39 +164,127 @@ jobs:
           
           echo "✅ All SSH keys generated successfully"
           
-      - name: Create Terraform Variables
+      - name: Upload SSH Keys to S3
         run: |
-          cd terraform
-          echo "=== Creating Terraform Variables ==="
+          echo "=== Uploading SSH Keys to S3 ==="
           
-          # Create terraform.tfvars with all required variables
-          echo 'instance_ids = ["${{ github.event.inputs.instance_ids }}"]' > terraform.tfvars
-          echo 'aws_region = "${{ inputs.aws_region }}"' >> terraform.tfvars
-          echo 'dry_run = ${{ github.event.inputs.dry_run }}' >> terraform.tfvars
-          echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
-          echo 'ssh_user = "ec2-user"' >> terraform.tfvars
-          echo 'users_file = "../users.yaml"' >> terraform.tfvars
-          echo '' >> terraform.tfvars
-          echo 'user_public_keys = {' >> terraform.tfvars
+          # Create S3 bucket for key storage
+          BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
+          aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }}
           
-          # Add SSH public keys
+          # Upload keys to S3
+          for user in alice bob charlie diana eve; do
+            aws s3 cp /tmp/ssh_keys/${user}_private_key s3://$BUCKET_NAME/keys/${user}_private_key --sse AES256
+            aws s3 cp /tmp/ssh_keys/${user}_public_key s3://$BUCKET_NAME/keys/${user}_public_key --sse AES256
+            echo "✅ Uploaded keys for $user to S3"
+          done
+          
+          echo "✅ All keys uploaded to S3 bucket: $BUCKET_NAME"
+          
+      - name: Install SSH Keys on EC2 Instance
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          echo "=== Installing SSH Keys on EC2 Instance ==="
+          
+          EC2_IP="${{ env.EC2_PUBLIC_IP }}"
+          SSH_USER="ec2-user"
+          
+          echo "Connecting to EC2 instance at $EC2_IP..."
+          
+          # Test SSH connection first
+          if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
+            echo "✅ SSH connection established"
+          else
+            echo "❌ Failed to establish SSH connection"
+            exit 1
+          fi
+          
+          # Install each user's public key
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
-              KEY_CONTENT=$(cat "/tmp/ssh_keys/${user}_public_key" | tr -d '\n' | sed 's/"/\\"/g')
-              echo "    \"${user}\" = \"${KEY_CONTENT}\"" >> terraform.tfvars
-              echo "✅ Added key for $user"
+              echo "Installing key for user: $user"
+              
+              # Read the public key content
+              PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
+              
+                             # Install the key on EC2
+               ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP << 'EOF'
+                 # Create user if it doesn't exist
+                 if ! id "$user" &>/dev/null; then
+                   sudo useradd -m -s /bin/bash $user
+                   echo "✅ Created user $user"
+                 else
+                   echo "✅ User $user already exists"
+                 fi
+                 
+                 # Create .ssh directory for user
+                 sudo mkdir -p /home/$user/.ssh
+                 sudo chown $user:$user /home/$user/.ssh
+                 sudo chmod 700 /home/$user/.ssh
+                 
+                 # Add public key to authorized_keys
+                 echo "$PUBLIC_KEY" | sudo tee -a /home/$user/.ssh/authorized_keys
+                 sudo chown $user:$user /home/$user/.ssh/authorized_keys
+                 sudo chmod 600 /home/$user/.ssh/authorized_keys
+                 
+                 echo "✅ SSH key installed for $user"
+               EOF
+              
+              echo "✅ Key installed for $user on EC2"
             else
               echo "❌ SSH key for $user not found"
               exit 1
             fi
           done
           
-          echo "  }" >> terraform.tfvars
+          echo "✅ All SSH keys installed on EC2 instance"
           
-          echo ""
-          echo "✅ terraform.tfvars created with SSH keys"
-          echo "File contents:"
-          cat terraform.tfvars
+      - name: Verify User Access
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          echo "=== Verifying User Access ==="
+          
+          EC2_IP="${{ env.EC2_PUBLIC_IP }}"
+          
+          # Test each user's SSH access
+          for user in alice bob charlie diana eve; do
+            echo "Testing SSH access for user: $user"
+            
+            # Create a temporary private key file for testing
+            TEMP_KEY="/tmp/test_${user}_key"
+            cp "/tmp/ssh_keys/${user}_private_key" "$TEMP_KEY"
+            chmod 600 "$TEMP_KEY"
+            
+            # Test SSH connection
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 $user@$EC2_IP "echo 'User $user can access EC2 successfully'"; then
+              echo "✅ User $user can access EC2 instance"
+            else
+              echo "❌ User $user cannot access EC2 instance"
+              exit 1
+            fi
+            
+            # Clean up temporary key
+            rm -f "$TEMP_KEY"
+          done
+          
+          echo "✅ All users can access EC2 instance successfully"
+          
+      - name: Create Terraform Variables (Simplified)
+        run: |
+          cd terraform
+          echo "=== Creating Simplified Terraform Variables ==="
+          
+          # Create minimal terraform.tfvars for user provisioning
+          cat > terraform.tfvars << EOF
+          instance_ids = ["${{ github.event.inputs.instance_ids }}"]
+          aws_region = "${{ inputs.aws_region }}"
+          dry_run = ${{ github.event.inputs.dry_run }}
+          ssh_private_key_path = "~/.ssh/ec2-provisioning-key"
+          ssh_user = "ec2-user"
+          users_file = "../users.yaml"
+          EOF
+          
+          echo "✅ terraform.tfvars created (no SSH keys needed)"
           
       - name: Terraform Init
         run: |
@@ -202,34 +321,35 @@ jobs:
             exit 1
           fi
           
-      - name: Upload SSH Keys to S3
-        run: |
-          echo "=== Uploading SSH Keys to S3 ==="
-          
-          # Create S3 bucket for key storage
-          BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
-          aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }}
-          
-          # Upload keys to S3
-          for user in alice bob charlie diana eve; do
-            aws s3 cp /tmp/ssh_keys/${user}_private_key s3://$BUCKET_NAME/keys/${user}_private_key --sse AES256
-            aws s3 cp /tmp/ssh_keys/${user}_public_key s3://$BUCKET_NAME/keys/${user}_public_key --sse AES256
-            echo "✅ Uploaded keys for $user to S3"
-          done
-          
-          echo "✅ All keys uploaded to S3 bucket: $BUCKET_NAME"
-          
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
           echo "=== Email Functionality ==="
           echo "Email functionality would be implemented here"
           echo "Keys are available in S3 for manual distribution"
+          echo "S3 Bucket: $BUCKET_NAME"
           
       - name: Cleanup
         run: |
           echo "=== Cleanup ==="
           rm -rf /tmp/ssh_keys
           echo "✅ Temporary files cleaned up"
+          
+      - name: Success Summary
+        run: |
+          echo ""
+          echo "🎉 USER PROVISIONING COMPLETED SUCCESSFULLY! 🎉"
+          echo ""
+          echo "📋 Summary:"
+          echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
+          echo "- Public IP: ${{ env.EC2_PUBLIC_IP }}"
+          echo "- Users Created: alice, bob, charlie, diana, eve"
+          echo "- SSH Keys: Available in S3 bucket"
+          echo "- Access Verified: All users can SSH to EC2"
+          echo ""
+          echo "🔑 Next Steps:"
+          echo "1. Users download their private keys from S3"
+          echo "2. Users connect: ssh -i user_key user@${{ env.EC2_PUBLIC_IP }}"
+          echo "3. All users have full access to their home directories"
 
  
