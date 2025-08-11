@@ -209,20 +209,20 @@ jobs:
             echo "❌ Terraform validation failed"
             echo "Attempting to get more detailed error information..."
             
-            # Try to get specific validation errors with more verbose output
-            echo "Detailed validation attempt:"
-            terraform validate -detailed-exitcode 2>&1 || {
-              echo "❌ Terraform validation failed with detailed output above"
-              echo "Common causes:"
-              echo "1. Syntax errors in .tf files"
-              echo "2. Provider version incompatibilities"
-              echo "3. Variable definition issues"
-              echo "4. Resource reference problems"
-              echo "5. Missing required providers"
-              echo ""
-              echo "Please check the error output above for specific issues"
-              exit 1
-            }
+                      # Try to get specific validation errors with more verbose output
+          echo "Detailed validation attempt:"
+          terraform validate 2>&1 || {
+            echo "❌ Terraform validation failed with detailed output above"
+            echo "Common causes:"
+            echo "1. Syntax errors in .tf files"
+            echo "2. Provider version incompatibilities"
+            echo "3. Variable definition issues"
+            echo "4. Resource reference problems"
+            echo "5. Missing required providers"
+            echo ""
+            echo "Please check the error output above for specific issues"
+            exit 1
+          }
           }
           
       - name: Validate Users YAML
@@ -1079,7 +1079,7 @@ jobs:
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
-              -detailed-exitcode || {
+              || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
               echo "1. SSH private key file missing (check EC2_SSH_PRIVATE_KEY secret)"
