@@ -356,6 +356,9 @@ jobs:
           set -e
           echo "=== Generating SSH Keys and Uploading to S3 ==="
           
+          # Set region variable
+          REGION="${{ inputs.aws_region }}"
+          
           # Check if using existing bucket or creating new one
           if [ -n "${{ env.EXISTING_S3_BUCKET }}" ]; then
             BUCKET_NAME="${{ env.EXISTING_S3_BUCKET }}"
@@ -423,7 +426,7 @@ jobs:
           aws s3api put-bucket-versioning \
             --bucket $BUCKET_NAME \
             --versioning-configuration Status=Enabled \
-            --region $REGION || {
+            --region ${{ inputs.aws_region }} || {
             echo "⚠️  Failed to enable versioning (bucket might have restrictions)"
           }
           
