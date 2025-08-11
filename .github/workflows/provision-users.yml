@@ -513,6 +513,61 @@ jobs:
           echo "🎉 SSH Key Generation Step Completed Successfully!"
           echo "Keys are ready for Terraform user provisioning."
           
+      - name: Update Terraform Variables with SSH Keys
+        run: |
+          cd terraform
+          echo "=== Updating Terraform Variables with SSH Keys ==="
+          
+          # Check if terraform.tfvars exists
+          if [ ! -f "terraform.tfvars" ]; then
+            echo "Creating terraform.tfvars file..."
+            echo "instance_ids = [\"${{ github.event.inputs.instance_ids }}\"]" > terraform.tfvars
+            echo "aws_region = \"${{ inputs.aws_region }}\"" >> terraform.tfvars
+            echo "dry_run = ${{ github.event.inputs.dry_run }}" >> terraform.tfvars
+            echo "ssh_keys_bucket_name = \"${{ env.ssh_keys_bucket_name }}\"" >> terraform.tfvars
+          fi
+          
+          # Add SSH public keys to terraform.tfvars
+          echo "" >> terraform.tfvars
+          echo "# SSH Public Keys for User Provisioning" >> terraform.tfvars
+          echo "user_public_keys = {" >> terraform.tfvars
+          
+          for user in alice bob charlie diana eve; do
+            if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
+              KEY_CONTENT=$(cat "/tmp/terraform_keys/${user}_public_key" | tr -d '\n' | sed 's/"/\\"/g')
+              echo "  \"${user}\" = \"${KEY_CONTENT}\"" >> terraform.tfvars
+              echo "✅ Added key for $user to terraform.tfvars"
+            else
+              echo "  # ${user}: SSH key not available" >> terraform.tfvars
+              echo "⚠️  SSH key for $user not available for Terraform"
+            fi
+          done
+          
+          echo "}" >> terraform.tfvars
+          
+          echo ""
+          echo "Updated terraform.tfvars contents:"
+          cat terraform.tfvars
+          
+          # Verify SSH keys are present
+          echo ""
+          echo "=== SSH Keys Verification ==="
+          if grep -q "user_public_keys" terraform.tfvars; then
+            echo "✅ user_public_keys section found"
+            KEY_COUNT=$(grep -c '"[a-z]*" = "' terraform.tfvars || echo "0")
+            echo "📊 SSH keys found: $KEY_COUNT"
+            
+            if [ "$KEY_COUNT" -gt 0 ]; then
+              echo "✅ SSH keys are ready for Terraform"
+            else
+              echo "⚠️  No SSH keys found in terraform.tfvars"
+              echo "This will cause Terraform to fail!"
+            fi
+          else
+            echo "❌ user_public_keys section missing from terraform.tfvars"
+            echo "This will cause Terraform to fail!"
+          fi
+          
       - name: Debug AWS Environment
         run: |
           set -e
@@ -841,46 +896,8 @@ jobs:
           echo "dry_run = ${{ github.event.inputs.dry_run }}" >> terraform.tfvars
           echo "ssh_keys_bucket_name = \"${{ env.ssh_keys_bucket_name }}\"" >> terraform.tfvars
           
-          echo "✅ terraform.tfvars created"
-          echo "File contents:"
-          cat terraform.tfvars
-          
-      - name: Verify SSH Keys in Terraform Variables
-        run: |
-          cd terraform
-          echo "=== Verifying SSH Keys in Terraform Variables ==="
-          
-          if [ -f "terraform.tfvars" ]; then
-            echo "✅ terraform.tfvars file exists"
-            
-            # Check if SSH keys are included
-            if grep -q "user_public_keys" terraform.tfvars; then
-              echo "✅ SSH keys section found in terraform.tfvars"
-              
-              # Count how many keys are available
-              KEY_COUNT=$(grep -c '"[a-z]*" = "' terraform.tfvars || echo "0")
-              echo "📊 SSH keys available: $KEY_COUNT"
-              
-              if [ "$KEY_COUNT" -gt 0 ]; then
-                echo "✅ SSH keys are ready for Terraform"
-              else
-                echo "⚠️  No SSH keys found in terraform.tfvars"
-                echo "This will cause Terraform to fail when provisioning users"
-              fi
-            else
-              echo "❌ SSH keys section missing from terraform.tfvars"
-              echo "This will cause Terraform to fail when provisioning users"
-            fi
-            
-            echo ""
-            echo "terraform.tfvars contents:"
-            cat terraform.tfvars
-          else
-            echo "❌ terraform.tfvars file not found"
-            exit 1
-          fi
-          
-          echo "=== End SSH Key Verification ==="
+          echo "✅ terraform.tfvars created with basic variables"
+          echo "Note: SSH keys will be added in the provision-users job"
           
       - name: Terraform Plan
         id: plan
