@@ -474,13 +474,13 @@ jobs:
           from email.mime.multipart import MIMEMultipart
           from email.mime.application import MIMEApplication
           
-          def send_ssh_key_email(username, full_name, private_key_content, instance_id, instance_ip, instance_name, smtp_host, smtp_port, recipient_email):
-              """Send SSH key email using Python SMTP with private key as attachment"""
+          def send_ssh_key_email(username, full_name, user_email, private_key_content, instance_id, instance_ip, instance_name, smtp_host, smtp_port):
+              """Send SSH key email using Python SMTP with private key as attachment to user's own email"""
               
               # Create email message with multipart support
               msg = MIMEMultipart()
               msg['From'] = 'EC2-Provisioning <noreply@mailhost.umb.com>'
-              msg['To'] = recipient_email
+              msg['To'] = user_email
               msg['Subject'] = f'SSH Key for EC2 Access - {username}'
               
               # Create email body (without the private key content)
@@ -553,23 +553,22 @@ jobs:
                       print("ℹ️  TLS not supported, continuing without encryption")
                   
                   # Send email
-                  print(f"📤 Sending email to {recipient_email}...")
+                  print(f"📤 Sending email to {user_email} for user {username}...")
                   server.send_message(msg)
                   server.quit()
                   
-                  print(f"✅ Email sent successfully for user {username}")
+                  print(f"✅ Email sent successfully for user {username} to {user_email}")
                   print(f"📎 Private key attached as: {username}_private_key")
                   return True
                   
               except Exception as e:
-                  print(f"❌ Failed to send email for user {username}: {str(e)}")
+                  print(f"❌ Failed to send email for user {username} to {user_email}: {str(e)}")
                   return False
           
           def main():
               # Configuration
               smtp_host = os.environ.get('SMTP_HOST', 'mailhost.umb.com')
               smtp_port = int(os.environ.get('SMTP_PORT', '25'))
-              recipient_email = os.environ.get('TEST_EMAIL', 'saran.alla@umb.com')
               
               # Get instance details from environment variables
               instance_id = os.environ.get('EC2_INSTANCE_ID', 'Unknown')
@@ -600,8 +599,14 @@ jobs:
               for user_data in users:
                   username = user_data['username']
                   full_name = user_data['full_name']
+                  user_email = user_data.get('email')
                   
-                  print(f"🧪 Processing user: {username} ({full_name})")
+                  # Skip users without email addresses
+                  if not user_email:
+                      print(f"⚠️  Skipping user {username} - no email address found")
+                      continue
+                  
+                  print(f"🧪 Processing user: {username} ({full_name}) -> {user_email}")
                   
                   # Check if key file exists
                   key_file = f"/tmp/ssh_keys/{username}_private_key"
@@ -618,10 +623,10 @@ jobs:
                       print(f"❌ Error reading key file: {e}")
                       continue
                   
-                  # Send email
-                  if send_ssh_key_email(username, full_name, private_key_content, 
+                  # Send email to user's own email address
+                  if send_ssh_key_email(username, full_name, user_email, private_key_content, 
                                      instance_id, instance_ip, instance_name,
-                                     smtp_host, smtp_port, recipient_email):
+                                     smtp_host, smtp_port):
                       success_count += 1
                   
                   print()
@@ -635,7 +640,7 @@ jobs:
               
               if success_count > 0:
                   print(f"✅ SSH keys processed successfully for {success_count} users")
-                  print(f"📧 Check your email at {recipient_email} for SSH key delivery")
+                  print(f"📧 Each user received their key at their own email address")
                   return 0
               else:
                   print("❌ No emails were processed successfully")
@@ -648,7 +653,6 @@ jobs:
           # Set environment variables for Python script
           export SMTP_HOST="$SMTP_HOST"
           export SMTP_PORT="$SMTP_PORT"
-          export TEST_EMAIL="$TEST_EMAIL"
           export EC2_INSTANCE_ID="${{ env.EC2_INSTANCE_ID }}"
           export EC2_INSTANCE_IP="${{ env.EC2_INSTANCE_IP }}"
           export EC2_INSTANCE_NAME="EC2 Instance"
@@ -671,7 +675,7 @@ jobs:
           echo ""
           echo "📧 Email Summary:"
           echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
-          echo "- Test Email: $TEST_EMAIL"
+          echo "- Each user receives their SSH key at their own email address"
           echo "- Python SMTP implementation completed"
           
       - name: Cleanup
@@ -705,7 +709,7 @@ jobs:
           echo ""
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
             echo "📧 Email Delivery:"
-            echo "- All SSH private keys sent to: saran.alla@umb.com (testing)"
+            echo "- Each user received their SSH private key at their own email address"
             echo "- SMTP Server: mailhost.umb.com:25"
             echo "- Keys delivered: 6 private keys with instructions"
             echo ""
@@ -713,7 +717,7 @@ jobs:
           echo "🔑 Next Steps:"
           echo "1. SSH keys available in S3 bucket: $BUCKET_NAME"
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
-            echo "2. Check email at saran.alla@umb.com for SSH keys"
+            echo "2. Check email at your own email address for SSH keys"
           fi
           echo "3. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
           echo "4. All users have full access to their home directories"
