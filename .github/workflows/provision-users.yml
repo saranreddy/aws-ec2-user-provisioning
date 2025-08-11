@@ -219,28 +219,17 @@ jobs:
               # Read the public key content
               PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
               
-              # Install the key on EC2
-              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP << EOF
-                # Create user if it doesn't exist
-                if ! id "$user" >/dev/null 2>&1; then
-                  sudo useradd -m -s /bin/bash $user
-                  echo "✅ Created user $user"
-                else
-                  echo "✅ User $user already exists"
-                fi
-                
-                # Create .ssh directory for user
-                sudo mkdir -p /home/$user/.ssh
-                sudo chown $user:$user /home/$user/.ssh
-                sudo chmod 700 /home/$user/.ssh
-                
-                # Add public key to authorized_keys
-                echo "$PUBLIC_KEY" | sudo tee -a /home/$user/.ssh/authorized_keys
-                sudo chown $user:$user /home/$user/.ssh/authorized_keys
-                sudo chmod 600 /home/$user/.ssh/authorized_keys
-                
-                echo "✅ SSH key installed for $user"
-              EOF
+              # Install the key on EC2 using individual commands to avoid heredoc issues
+              echo "Creating user account for $user..."
+              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "sudo useradd -m -s /bin/bash $user 2>/dev/null || echo 'User $user already exists'"
+              
+              echo "Setting up SSH directory for $user..."
+              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "sudo mkdir -p /home/$user/.ssh && sudo chown $user:$user /home/$user/.ssh && sudo chmod 700 /home/$user/.ssh"
+              
+              echo "Installing SSH key for $user..."
+              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP "echo '$PUBLIC_KEY' | sudo tee -a /home/$user/.ssh/authorized_keys && sudo chown $user:$user /home/$user/.ssh/authorized_keys && sudo chmod 600 /home/$user/.ssh/authorized_keys"
+              
+              echo "✅ SSH key installed for $user"
               
               echo "✅ Key installed for $user on EC2"
             else
