@@ -138,32 +138,47 @@ jobs:
           cd terraform
           echo "=== Creating Terraform Variables ==="
           
-          # Create terraform.tfvars with all required variables
-          echo 'instance_ids = ["${{ github.event.inputs.instance_ids }}"]' > terraform.tfvars
-          echo 'aws_region = "${{ inputs.aws_region }}"' >> terraform.tfvars
-          echo 'dry_run = ${{ github.event.inputs.dry_run }}' >> terraform.tfvars
-          echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
-          echo 'ssh_user = "ec2-user"' >> terraform.tfvars
-          echo 'users_file = "../users.yaml"' >> terraform.tfvars
-          echo '' >> terraform.tfvars
-          echo 'user_public_keys = {' >> terraform.tfvars
+          # Create a simple terraform.tfvars file
+          cat > terraform.tfvars << 'EOF'
+          instance_ids = ["${{ github.event.inputs.instance_ids }}"]
+          aws_region = "${{ inputs.aws_region }}"
+          dry_run = ${{ github.event.inputs.dry_run }}
+          ssh_private_key_path = "~/.ssh/ec2-provisioning-key"
+          ssh_user = "ec2-user"
+          users_file = "../users.yaml"
           
-          # Add SSH public keys
+          user_public_keys = {
+            alice = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+            bob = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+            charlie = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+            diana = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+            eve = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
+          }
+          EOF
+          
+          echo "✅ terraform.tfvars created with placeholder SSH keys"
+          echo "Note: SSH keys will be updated with actual content in the next step"
+          
+      - name: Update SSH Keys in Terraform Variables
+        run: |
+          cd terraform
+          echo "=== Updating SSH Keys in Terraform Variables ==="
+          
+          # Update the terraform.tfvars file with actual SSH keys
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
               KEY_CONTENT=$(cat "/tmp/ssh_keys/${user}_public_key" | tr -d '\n' | sed 's/"/\\"/g')
-              echo "    \"${user}\" = \"${KEY_CONTENT}\"" >> terraform.tfvars
-              echo "✅ Added key for $user"
+              # Use sed to replace the placeholder with actual key
+              sed -i "s/ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC.../${KEY_CONTENT}/g" terraform.tfvars
+              echo "✅ Updated key for $user"
             else
               echo "❌ SSH key for $user not found"
               exit 1
             fi
           done
           
-          echo "  }" >> terraform.tfvars
-          
           echo ""
-          echo "✅ terraform.tfvars created with SSH keys"
+          echo "✅ terraform.tfvars updated with actual SSH keys"
           echo "File contents:"
           cat terraform.tfvars
           
