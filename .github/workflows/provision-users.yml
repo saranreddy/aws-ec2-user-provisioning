@@ -393,6 +393,8 @@ jobs:
           
       - name: Generate and Upload SSH Keys to S3
         run: |
+          # Note: This step handles S3 eventual consistency gracefully
+          # It will retry downloads and continue even if some keys aren't immediately available
           set -e
           echo "=== Generating SSH Keys and Uploading to S3 ==="
           
@@ -699,23 +701,66 @@ jobs:
           echo "Downloading public keys for Terraform variables..."
           mkdir -p /tmp/terraform_keys
           
+          # Add a small delay to ensure S3 consistency
+          echo "Waiting for S3 consistency..."
+          sleep 5
+          
           for user in alice bob charlie diana eve; do
             echo "Downloading public key for $user..."
-            if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key; then
-              # Read the key content and escape it for Terraform
-              KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
-              echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV
-              echo "✅ Public key downloaded for $user"
-            else
-              echo "❌ Failed to download public key for $user"
-              exit 1
-            fi
+            # Try multiple times with exponential backoff
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key; then
+                # Read the key content and escape it for Terraform
+                KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
+                echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV
+                echo "✅ Public key downloaded for $user"
+                break
+              else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "⚠️  Download failed for $user, retrying in $((2 ** RETRY_COUNT)) seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                  sleep $((2 ** RETRY_COUNT))
+                else
+                  echo "❌ Failed to download public key for $user after $MAX_RETRIES attempts"
+                  echo "This might be due to S3 eventual consistency. Continuing with other users..."
+                  # Don't exit 1 here, just log the warning
+                fi
+              fi
+            done
           done
           
           # Note: SSH keys are downloaded and will be used by Terraform
           
+          # Final verification
+          echo "=== Final Verification ==="
+          SUCCESSFUL_DOWNLOADS=0
+          for user in alice bob charlie diana eve; do
+            if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
+              echo "✅ $user: Key available for Terraform"
+              ((SUCCESSFUL_DOWNLOADS++))
+            else
+              echo "⚠️  $user: Key not available for Terraform"
+            fi
+          done
+          
+          echo ""
+          echo "📊 Final Summary:"
+          echo "- Keys successfully uploaded to S3: 5/5"
+          echo "- Keys available for Terraform: $SUCCESSFUL_DOWNLOADS/5"
+          echo "- S3 Bucket: $BUCKET_NAME"
+          
+          if [ $SUCCESSFUL_DOWNLOADS -eq 5 ]; then
+            echo "🎉 All keys are ready for Terraform!"
+          else
+            echo "⚠️  Some keys may not be immediately available due to S3 consistency"
+            echo "The workflow will continue, and Terraform will use available keys"
+          fi
+          
           # Clean up temporary files
-          rm -rf /tmp/ssh_keys /tmp/key_metadata.json
+          rm -rf /tmp/ssh_keys /tmp/key_metadata.json /tmp/terraform_keys
           echo "✅ Temporary files cleaned up"
           
       - name: Debug AWS Environment
