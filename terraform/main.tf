@@ -14,24 +14,27 @@ data "local_file" "users_config" {
 # Keys are pre-generated and stored in S3 bucket, then retrieved as needed
 
 # S3 bucket for storing SSH keys
-# Use the bucket created by the workflow, or create a new one if it doesn't exist
-resource "aws_s3_bucket" "ssh_keys" {
+# Use the existing bucket created by the workflow
+data "aws_s3_bucket" "ssh_keys" {
   bucket = var.ssh_keys_bucket_name
-
-  tags = var.tags
 }
 
-# Enable versioning for key history
+# Enable versioning for key history (only if not already enabled)
 resource "aws_s3_bucket_versioning" "ssh_keys_versioning" {
-  bucket = aws_s3_bucket.ssh_keys.id
+  bucket = data.aws_s3_bucket.ssh_keys.id
   versioning_configuration {
     status = "Enabled"
   }
+  
+  # Prevent recreation if versioning is already enabled
+  lifecycle {
+    ignore_changes = [versioning_configuration]
+  }
 }
 
-# Enable server-side encryption
+# Enable server-side encryption (only if not already enabled)
 resource "aws_s3_bucket_server_side_encryption_configuration" "ssh_keys_encryption" {
-  bucket = aws_s3_bucket.ssh_keys.id
+  bucket = data.aws_s3_bucket.ssh_keys.id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -39,16 +42,26 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ssh_keys_encrypti
     }
     bucket_key_enabled = true
   }
+  
+  # Prevent recreation if encryption is already configured
+  lifecycle {
+    ignore_changes = [rule]
+  }
 }
 
-# Block public access to the keys bucket
+# Block public access to the keys bucket (only if not already configured)
 resource "aws_s3_bucket_public_access_block" "ssh_keys_pab" {
-  bucket = aws_s3_bucket.ssh_keys.id
+  bucket = data.aws_s3_bucket.ssh_keys.id
 
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+  
+  # Prevent recreation if public access block is already configured
+  lifecycle {
+    ignore_changes = [block_public_acls, block_public_policy, ignore_public_acls, restrict_public_buckets]
+  }
 }
 
 # Fetch public keys from S3 for each user
@@ -57,10 +70,10 @@ resource "aws_s3_bucket_public_access_block" "ssh_keys_pab" {
 data "aws_s3_object" "user_public_keys" {
   for_each = { for user in yamldecode(data.local_file.users_config.content).users : user.username => user }
 
-  bucket = aws_s3_bucket.ssh_keys.bucket
+  bucket = data.aws_s3_bucket.ssh_keys.bucket
   key    = "keys/${each.key}_public_key"
 
-  depends_on = [aws_s3_bucket.ssh_keys]
+  depends_on = [data.aws_s3_bucket.ssh_keys]
 }
 
 # Verify all required keys exist in S3 before proceeding
@@ -71,15 +84,15 @@ resource "null_resource" "verify_keys_exist" {
   provisioner "local-exec" {
     command = <<-EOT
       echo "Checking if keys exist for user: ${each.key}"
-      aws s3 ls s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key || {
+      aws s3 ls s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key || {
         echo "ERROR: Public key for user ${each.key} not found in S3"
-        echo "Expected location: s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key"
+        echo "Expected location: s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_public_key"
         echo "Please ensure keys are generated and uploaded before running Terraform"
         exit 1
       }
-      aws s3 ls s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key || {
+      aws s3 ls s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key || {
         echo "ERROR: Private key for user ${each.key} not found in S3"
-        echo "Expected location: s3://${aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key"
+        echo "Expected location: s3://${data.aws_s3_bucket.ssh_keys.bucket}/keys/${each.key}_private_key"
         echo "Please ensure keys are generated and uploaded before running Terraform"
         exit 1
       }
@@ -89,7 +102,7 @@ resource "null_resource" "verify_keys_exist" {
 
   triggers = {
     users_hash = md5(data.local_file.users_config.content)
-    bucket_id  = aws_s3_bucket.ssh_keys.id
+    bucket_id  = data.aws_s3_bucket.ssh_keys.id
   }
 }
 
