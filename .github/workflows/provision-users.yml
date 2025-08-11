@@ -507,7 +507,7 @@ jobs:
             echo "Uploading private key for $user..."
             if aws s3 cp /tmp/ssh_keys/${user}_private_key \
               s3://$BUCKET_NAME/keys/${user}_private_key \
-              --server-side-encryption AES256 \
+              --sse AES256 \
               --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
               echo "✅ Private key uploaded for $user"
             else
@@ -523,7 +523,7 @@ jobs:
             echo "Uploading public key for $user..."
             if aws s3 cp /tmp/ssh_keys/${user}_public_key \
               s3://$BUCKET_NAME/keys/${user}_public_key \
-              --server-side-encryption AES256 \
+              --sse AES256 \
               --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
               echo "✅ Public key uploaded for $user"
             else
@@ -558,7 +558,7 @@ jobs:
           # Upload metadata
           aws s3 cp /tmp/key_metadata.json \
             s3://$BUCKET_NAME/metadata/key-generation-$(date +%Y%m%d-%H%M%S).json \
-            --server-side-encryption AES256
+            --sse AES256
           
           echo "✅ SSH key generation and S3 upload completed successfully"
           echo "Keys stored in bucket: s3://$BUCKET_NAME/keys/"
