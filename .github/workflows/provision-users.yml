@@ -59,6 +59,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate Prerequisites
+        run: |
+          echo "=== Validating Prerequisites ==="
+          
+          # Check if required secrets are set
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            echo "Please add this secret to your repository settings"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ Required secret 'EC2_SSH_PRIVATE_KEY' is not set"
+            echo "Please add this secret to your repository settings"
+            echo "This should contain the private key content for connecting to EC2 instances"
+            exit 1
+          fi
+          
+          # Check if required files exist
+          if [ ! -f "users.yaml" ]; then
+            echo "❌ users.yaml file not found"
+            exit 1
+          fi
+          
+          if [ ! -d "terraform" ]; then
+            echo "❌ terraform directory not found"
+            exit 1
+          fi
+          
+          echo "✅ All prerequisites validated"
+          
       - name: Install dependencies
         run: |
           # Install required packages
@@ -72,11 +103,6 @@ jobs:
           
       - name: Set Role Name
         run: |
-          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
-            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
-            exit 1
-          fi
-          
           echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
           echo "Using role ARN: ${{ env.AuthRole }}"
           
@@ -96,13 +122,6 @@ jobs:
       - name: Setup SSH Key for EC2 Access
         run: |
           echo "=== Setting up SSH Key for EC2 Access ==="
-          
-          # Check if SSH private key secret is set
-          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
-            echo "❌ SSH private key secret 'EC2_SSH_PRIVATE_KEY' is not set"
-            echo "This is required for connecting to EC2 instances"
-            exit 1
-          fi
           
           # Create .ssh directory and key file
           mkdir -p ~/.ssh
@@ -151,6 +170,9 @@ jobs:
           echo 'instance_ids = ["${{ github.event.inputs.instance_ids }}"]' > terraform.tfvars
           echo 'aws_region = "${{ inputs.aws_region }}"' >> terraform.tfvars
           echo 'dry_run = ${{ github.event.inputs.dry_run }}' >> terraform.tfvars
+          echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
+          echo 'ssh_user = "ec2-user"' >> terraform.tfvars
+          echo 'users_file = "../users.yaml"' >> terraform.tfvars
           echo '' >> terraform.tfvars
           echo 'user_public_keys = {' >> terraform.tfvars
           
@@ -180,6 +202,13 @@ jobs:
           echo "=== Terraform Initialization ==="
           terraform init
           echo "✅ Terraform initialized"
+          
+      - name: Terraform Validate
+        run: |
+          cd terraform
+          echo "=== Terraform Validation ==="
+          terraform validate
+          echo "✅ Terraform configuration is valid"
           
       - name: Terraform Plan
         run: |
