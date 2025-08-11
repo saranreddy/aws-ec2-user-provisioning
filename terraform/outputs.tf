@@ -1,45 +1,36 @@
 # Terraform outputs for AWS EC2 user provisioning
+# This file now outputs information for the workflow to use
 
-output "provisioning_complete" {
-  description = "Confirmation that user provisioning has completed"
-  value       = "User provisioning completed successfully!"
+output "provisioning_ready" {
+  description = "Confirmation that instances are ready for user provisioning"
+  value       = "Instances validated and ready for user provisioning by workflow!"
 }
 
-output "users_created" {
-  description = "List of users that were created"
+output "instance_details" {
+  description = "Details of instances ready for user provisioning"
   value = {
-    for username, user in yamldecode(data.local_file.users_config.content).users : username => {
-      username  = user.username
-      email     = user.email
-      full_name = user.full_name
+    for instance_id in var.instance_ids : instance_id => {
+      instance_id   = instance_id
+      public_ip     = data.aws_instance.instance[instance_id].public_ip
+      instance_type = data.aws_instance.instance[instance_id].instance_type
+      state         = data.aws_instance.instance[instance_id].instance_state
+      region        = var.aws_region
     }
   }
 }
 
-output "instances_provisioned" {
-  description = "List of instances where users were provisioned"
-  value       = var.instance_ids
+output "user_configuration" {
+  description = "User configuration loaded from YAML file"
+  value = yamldecode(data.local_file.users_config.content)
 }
 
-output "ssh_key_status" {
-  description = "Status of SSH key installation for each user"
-  value = {
-    for username, user in yamldecode(data.local_file.users_config.content).users : username => {
-      username     = user.username
-      email        = user.email
-      full_name    = user.full_name
-      ssh_key_installed = contains(keys(var.user_public_keys), username)
-    }
-  }
-}
-
-output "next_steps" {
-  description = "Next steps after provisioning"
+output "workflow_next_steps" {
+  description = "Next steps for the workflow after Terraform validation"
   value = [
-    "1. SSH keys have been generated and installed on EC2 instances",
-    "2. Users have been created on all specified EC2 instances",
-    "3. Public keys have been added to each user's authorized_keys",
-    "4. Users can SSH to instances using their private keys",
-    "5. SSH keys are available in the workflow for distribution"
+    "1. Terraform validation completed successfully",
+    "2. EC2 instances are accessible and ready",
+    "3. Workflow will now create users and install SSH keys directly",
+    "4. SSH keys will be uploaded to S3 for user distribution",
+    "5. Users will be able to SSH to instances using their private keys"
   ]
 } 

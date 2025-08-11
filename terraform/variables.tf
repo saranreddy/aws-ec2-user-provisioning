@@ -1,4 +1,5 @@
 # Terraform variables for AWS EC2 user provisioning
+# This file now contains only the variables needed for infrastructure validation
 
 variable "aws_region" {
   description = "AWS region where resources will be created"
@@ -23,14 +24,8 @@ variable "instance_ids" {
   }
 }
 
-variable "user_public_keys" {
-  description = "Map of username to public key content for direct installation"
-  type        = map(string)
-  default     = {}
-}
-
 variable "ssh_private_key_path" {
-  description = "Path to the private SSH key for connecting to EC2 instances"
+  description = "Path to the private SSH key for connecting to EC2 instances (used for validation only)"
   type        = string
   default     = "~/.ssh/ec2-provisioning-key"
 }
