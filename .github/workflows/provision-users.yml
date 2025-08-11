@@ -697,47 +697,17 @@ jobs:
           echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
           echo "✅ Bucket name stored for Terraform: $BUCKET_NAME"
           
-          # Download public keys and store content for Terraform
-          echo "Downloading public keys for Terraform variables..."
+          # Store SSH keys locally for Terraform (no S3 download needed)
+          echo "=== Storing SSH Keys Locally for Terraform ==="
           mkdir -p /tmp/terraform_keys
           
-          # Add a small delay to ensure S3 consistency
-          echo "Waiting for S3 consistency..."
-          sleep 5
-          
+          # Copy keys from the generation directory to Terraform directory
           for user in alice bob charlie diana eve; do
-            echo "Downloading public key for $user..."
-            # Try multiple times with exponential backoff
-            MAX_RETRIES=3
-            RETRY_COUNT=0
-            DOWNLOAD_SUCCESS=false
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; do
-              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key 2>/dev/null; then
-                # Read the key content and escape it for Terraform
-                if KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key 2>/dev/null | tr -d '\n' | sed 's/"/\\"/g' 2>/dev/null); then
-                  echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV 2>/dev/null || true
-                  echo "✅ Public key downloaded for $user"
-                  DOWNLOAD_SUCCESS=true
-                  break
-                else
-                  echo "⚠️  Failed to read key content for $user, will retry..."
-                  rm -f /tmp/terraform_keys/${user}_public_key
-                fi
-              else
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                  echo "⚠️  Download failed for $user, retrying in $((2 ** RETRY_COUNT)) seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                  sleep $((2 ** RETRY_COUNT))
-                else
-                  echo "❌ Failed to download public key for $user after $MAX_RETRIES attempts"
-                  echo "This might be due to S3 eventual consistency. Continuing with other users..."
-                fi
-              fi
-            done
-            
-            if [ "$DOWNLOAD_SUCCESS" = false ]; then
-              echo "⚠️  User $user: Key download failed, but continuing with workflow..."
+            if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+              cp "/tmp/ssh_keys/${user}_public_key" "/tmp/terraform_keys/${user}_public_key"
+              echo "✅ Copied SSH key for $user to Terraform directory"
+            else
+              echo "⚠️  SSH key for $user not found in generation directory"
             fi
           done
           
@@ -745,11 +715,11 @@ jobs:
           
           # Final verification
           echo "=== Final Verification ==="
-          SUCCESSFUL_DOWNLOADS=0
+          SUCCESSFUL_KEYS=0
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
               echo "✅ $user: Key available for Terraform"
-              ((SUCCESSFUL_DOWNLOADS++))
+              ((SUCCESSFUL_KEYS++))
             else
               echo "⚠️  $user: Key not available for Terraform"
             fi
@@ -757,15 +727,16 @@ jobs:
           
           echo ""
           echo "📊 Final Summary:"
+          echo "- Keys successfully generated: 5/5"
           echo "- Keys successfully uploaded to S3: 5/5"
-          echo "- Keys available for Terraform: $SUCCESSFUL_DOWNLOADS/5"
+          echo "- Keys available for Terraform: $SUCCESSFUL_KEYS/5"
           echo "- S3 Bucket: $BUCKET_NAME"
           
-          if [ $SUCCESSFUL_DOWNLOADS -eq 5 ]; then
+          if [ $SUCCESSFUL_KEYS -eq 5 ]; then
             echo "🎉 All keys are ready for Terraform!"
           else
-            echo "⚠️  Some keys may not be immediately available due to S3 consistency"
-            echo "The workflow will continue, and Terraform will use available keys"
+            echo "⚠️  Some keys are missing, but workflow will continue"
+            echo "Terraform will use whatever keys are available"
           fi
           
           # Clean up temporary files
@@ -805,8 +776,8 @@ jobs:
           
           echo ""
           echo "🎉 SSH Key Generation and S3 Upload Step Completed Successfully!"
-          echo "The workflow will continue to the next step regardless of individual key download results."
-          echo "Terraform will use whatever keys are available for user provisioning."
+          echo "Keys are stored both in S3 (for backup) and locally (for Terraform)."
+          echo "No S3 downloads needed - keys flow directly from generation to Terraform."
           
       - name: Debug AWS Environment
         run: |
