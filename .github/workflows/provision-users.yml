@@ -484,41 +484,59 @@ jobs:
             
             echo "📧 Sending email for user: $username"
             
-            # Create email content
-            local email_content="From: EC2-Provisioning <noreply@mailhost.umb.com>"
-            email_content="$email_content"$'\n'"To: $TEST_EMAIL"
-            email_content="$email_content"$'\n'"Subject: SSH Key for EC2 Access - $username"
-            email_content="$email_content"$'\n'"Content-Type: text/plain; charset=UTF-8"
-            email_content="$email_content"$'\n'"MIME-Version: 1.0"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"SSH Key for EC2 Access - $username"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"Username: $username"
-            email_content="$email_content"$'\n'"Full Name: $full_name"
-            email_content="$email_content"$'\n'"Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"Your SSH private key has been generated and is provided below."
-            email_content="$email_content"$'\n'"Use this key to access your EC2 instance."
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"SECURITY IMPORTANT:"
-            email_content="$email_content"$'\n'"- Keep this private key secure and never share it"
-            email_content="$email_content"$'\n'"- Store it in ~/.ssh/ directory"
-            email_content="$email_content"$'\n'"- Set proper permissions: chmod 600 your_key_file"
-            email_content="$email_content"$'\n'"- Never commit private keys to version control"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"Your SSH Private Key:"
-            email_content="$email_content"$'\n'"----------------------------------------"
-            email_content="$email_content"$'\n'"$(cat "$key_file")"
-            email_content="$email_content"$'\n'"----------------------------------------"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"How to Use:"
-            email_content="$email_content"$'\n'"1. Save the private key above to a file (e.g., ~/.ssh/${username}_key)"
-            email_content="$email_content"$'\n'"2. Set proper permissions: chmod 600 ~/.ssh/${username}_key"
-            email_content="$email_content"$'\n'"3. Connect to EC2: ssh -i ~/.ssh/${username}_key $username@EC2_IP_ADDRESS"
-            email_content="$email_content"$'\n'$'\n'
-            email_content="$email_content"$'\n'"This is an automated message from the AWS EC2 User Provisioning System."
-            email_content="$email_content"$'\n'"If you have any questions, please contact your system administrator."
-            email_content="$email_content"$'\n'$'\n'
+            # Read the private key content first
+            local private_key_content=""
+            if [ -f "$key_file" ]; then
+              private_key_content=$(cat "$key_file")
+              echo "✅ Private key content loaded (${#private_key_content} characters)"
+            else
+              echo "❌ Private key file not found: $key_file"
+              return 1
+            fi
+            
+            # Create email content with proper key embedding
+            local email_content=""
+            email_content="${email_content}From: EC2-Provisioning <noreply@mailhost.umb.com>"
+            email_content="${email_content}"$'\n'"To: $TEST_EMAIL"
+            email_content="${email_content}"$'\n'"Subject: SSH Key for EC2 Access - $username"
+            email_content="${email_content}"$'\n'"Content-Type: text/plain; charset=UTF-8"
+            email_content="${email_content}"$'\n'"MIME-Version: 1.0"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"SSH Key for EC2 Access - $username"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Username: $username"
+            email_content="${email_content}"$'\n'"Full Name: $full_name"
+            email_content="${email_content}"$'\n'"Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Your SSH private key has been generated and is provided below."
+            email_content="${email_content}"$'\n'"Use this key to access your EC2 instance."
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"SECURITY IMPORTANT:"
+            email_content="${email_content}"$'\n'"- Keep this private key secure and never share it"
+            email_content="${email_content}"$'\n'"- Store it in ~/.ssh/ directory"
+            email_content="${email_content}"$'\n'"- Set proper permissions: chmod 600 your_key_file"
+            email_content="${email_content}"$'\n'"- Never commit private keys to version control"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Your SSH Private Key:"
+            email_content="${email_content}"$'\n'"----------------------------------------"
+            email_content="${email_content}"$'\n'"$private_key_content"
+            email_content="${email_content}"$'\n'"----------------------------------------"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"How to Use:"
+            email_content="${email_content}"$'\n'"1. Save the private key above to a file (e.g., ~/.ssh/${username}_key)"
+            email_content="${email_content}"$'\n'"2. Set proper permissions: chmod 600 ~/.ssh/${username}_key"
+            email_content="${email_content}"$'\n'"3. Connect to EC2: ssh -i ~/.ssh/${username}_key $username@EC2_IP_ADDRESS"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"This is an automated message from the AWS EC2 User Provisioning System."
+            email_content="${email_content}"$'\n'"If you have any questions, please contact your system administrator."
+            email_content="${email_content}"$'\n'$'\n'
+            
+            # Debug: Show email content preview
+            echo "📄 Email content preview (first 200 chars):"
+            echo "${email_content:0:200}..."
+            echo "📄 Email content length: ${#email_content} characters"
+            echo "📄 Private key length: ${#private_key_content} characters"
+            echo ""
             
             # Try multiple methods to send email
             local email_sent=false
@@ -526,10 +544,21 @@ jobs:
             # Method 1: Try using /dev/tcp (built-in bash feature)
             if [ -n "$BASH_VERSION" ]; then
               echo "🔄 Trying /dev/tcp method..."
-              (
-                echo -e "EHLO github-actions\r\nMAIL FROM: <noreply@mailhost.umb.com>\r\nRCPT TO: <$TEST_EMAIL>\r\nDATA\r\n$email_content\r\n.\r\nQUIT\r\n"
-              ) > /tmp/smtp_commands.txt
               
+              # Create SMTP commands with proper line endings
+              local smtp_commands=""
+              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
+              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
+              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
+              smtp_commands="${smtp_commands}DATA\r\n"
+              smtp_commands="${smtp_commands}${email_content}\r\n"
+              smtp_commands="${smtp_commands}.\r\n"
+              smtp_commands="${smtp_commands}QUIT\r\n"
+              
+              # Save SMTP commands to file
+              echo -e "$smtp_commands" > /tmp/smtp_commands.txt
+              
+              # Send via /dev/tcp
               if timeout 30 bash -c "exec 3<>/dev/tcp/$SMTP_HOST/$SMTP_PORT; cat /tmp/smtp_commands.txt >&3; cat <&3" 2>/dev/null | grep -q "250"; then
                 echo "✅ Email sent successfully via /dev/tcp for $username"
                 email_sent=true
@@ -541,7 +570,18 @@ jobs:
             # Method 2: Try using socat if available (no sudo needed)
             if [ "$email_sent" = false ] && command -v socat &> /dev/null; then
               echo "🔄 Trying socat method..."
-              if echo -e "EHLO github-actions\r\nMAIL FROM: <noreply@mailhost.umb.com>\r\nRCPT TO: <$TEST_EMAIL>\r\nDATA\r\n$email_content\r\n.\r\nQUIT\r\n" | socat - TCP:$SMTP_HOST:$SMTP_PORT 2>/dev/null | grep -q "250"; then
+              
+              # Create SMTP commands for socat
+              local smtp_commands=""
+              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
+              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
+              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
+              smtp_commands="${smtp_commands}DATA\r\n"
+              smtp_commands="${smtp_commands}${email_content}\r\n"
+              smtp_commands="${smtp_commands}.\r\n"
+              smtp_commands="${smtp_commands}QUIT\r\n"
+              
+              if echo -e "$smtp_commands" | socat - TCP:$SMTP_HOST:$SMTP_PORT 2>/dev/null | grep -q "250"; then
                 echo "✅ Email sent successfully via socat for $username"
                 email_sent=true
               else
@@ -552,7 +592,18 @@ jobs:
             # Method 3: Try using telnet if available (no sudo needed)
             if [ "$email_sent" = false ] && command -v telnet &> /dev/null; then
               echo "🔄 Trying telnet method..."
-              if echo -e "EHLO github-actions\r\nMAIL FROM: <noreply@mailhost.umb.com>\r\nRCPT TO: <$TEST_EMAIL>\r\nDATA\r\n$email_content\r\n.\r\nQUIT\r\n" | timeout 30 telnet $SMTP_HOST $SMTP_PORT 2>/dev/null | grep -q "250"; then
+              
+              # Create SMTP commands for telnet
+              local smtp_commands=""
+              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
+              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
+              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
+              smtp_commands="${smtp_commands}DATA\r\n"
+              smtp_commands="${smtp_commands}${email_content}\r\n"
+              smtp_commands="${smtp_commands}.\r\n"
+              smtp_commands="${smtp_commands}QUIT\r\n"
+              
+              if echo -e "$smtp_commands" | timeout 30 telnet $SMTP_HOST $SMTP_PORT 2>/dev/null | grep -q "250"; then
                 echo "✅ Email sent successfully via telnet for $username"
                 email_sent=true
               else
@@ -563,7 +614,18 @@ jobs:
             # Method 4: Try using openssl s_client (built-in, no sudo needed)
             if [ "$email_sent" = false ] && command -v openssl &> /dev/null; then
               echo "🔄 Trying openssl method..."
-              if echo -e "EHLO github-actions\r\nMAIL FROM: <noreply@mailhost.umb.com>\r\nRCPT TO: <$TEST_EMAIL>\r\nDATA\r\n$email_content\r\n.\r\nQUIT\r\n" | timeout 30 openssl s_client -connect $SMTP_HOST:$SMTP_PORT -starttls smtp 2>/dev/null | grep -q "250"; then
+              
+              # Create SMTP commands for openssl
+              local smtp_commands=""
+              smtp_commands="${smtp_commands}EHLO github-actions\r\n"
+              smtp_commands="${smtp_commands}MAIL FROM: <noreply@mailhost.umb.com>\r\n"
+              smtp_commands="${smtp_commands}RCPT TO: <$TEST_EMAIL>\r\n"
+              smtp_commands="${smtp_commands}DATA\r\n"
+              smtp_commands="${smtp_commands}${email_content}\r\n"
+              smtp_commands="${smtp_commands}.\r\n"
+              smtp_commands="${smtp_commands}QUIT\r\n"
+              
+              if echo -e "$smtp_commands" | timeout 30 openssl s_client -connect $SMTP_HOST:$SMTP_PORT -starttls smtp 2>/dev/null | grep -q "250"; then
                 echo "✅ Email sent successfully via openssl for $username"
                 email_sent=true
               else
