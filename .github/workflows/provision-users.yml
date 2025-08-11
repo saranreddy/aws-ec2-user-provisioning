@@ -59,11 +59,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
           
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -453,25 +448,10 @@ jobs:
             exit 1
           fi
           
-      - name: Install Python Dependencies
-        if: github.event.inputs.send_emails == 'true'
-        run: |
-          echo "=== Installing Python Dependencies ==="
-          
-          # Check Python version
-          echo "🐍 Python version:"
-          python3 --version
-          
-          # Install Python dependencies
-          echo "📦 Installing Python dependencies..."
-          pip3 install pyyaml
-          
-          echo "✅ Python dependencies installed successfully"
-          
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
-          echo "=== Sending SSH Keys via Enhanced Email Script ==="
+          echo "=== Sending SSH Keys via Email (Python SMTP) ==="
           
           # Set SMTP configuration for UMB
           SMTP_HOST="mailhost.umb.com"
@@ -484,65 +464,226 @@ jobs:
           echo "- Test Email: $TEST_EMAIL"
           echo ""
           
-          # Copy SSH keys to terraform/keys directory for the email script
-          echo "📁 Preparing SSH keys for email script..."
-          mkdir -p terraform/keys
-          
-          # Read usernames from users.yaml dynamically
-          USERS=$(python3 -c "
+          # Create Python script for sending emails
+          cat > /tmp/send_emails.py << 'EOF'
+          import smtplib
           import yaml
-          with open('users.yaml', 'r') as f:
-              data = yaml.safe_load(f)
-              users = [user['username'] for user in data['users']]
-              print(' '.join(users))
-          ")
+          import os
+          import sys
+          from email.mime.text import MIMEText
+          from email.mime.multipart import MIMEMultipart
           
-          echo "📋 Users to process: $USERS"
-          echo ""
+          def send_ssh_key_email(username, full_name, private_key_content, instance_id, instance_ip, instance_name, smtp_host, smtp_port, recipient_email):
+              """Send SSH key email using Python SMTP"""
+              
+              # Create email message
+              msg = MIMEMultipart()
+              msg['From'] = 'EC2-Provisioning <noreply@mailhost.umb.com>'
+              msg['To'] = recipient_email
+              msg['Subject'] = f'SSH Key for EC2 Access - {username}'
+              
+              # Create email body
+              email_body = f"""SSH Key for EC2 Access - {username}
+          ==========================================
           
-          # Copy keys to terraform/keys directory
-          for user in $USERS; do
-            if [ -f "/tmp/ssh_keys/${user}_private_key" ]; then
-              cp "/tmp/ssh_keys/${user}_private_key" "terraform/keys/${user}_private_key"
-              echo "✅ Copied key for $user to terraform/keys/"
-            else
-              echo "⚠️  No key file found for $user"
-            fi
-          done
+          User Information:
+          - Username: {username}
+          - Full Name: {full_name}
+          - Generated: {os.popen('date').read().strip()}
           
-          echo ""
-          echo "🔍 Checking terraform/keys directory contents:"
-          ls -la terraform/keys/
-          echo ""
+          Instance Details:
+          - Instance Name: {instance_name}
+          - Instance ID: {instance_id}
+          - Private IP: {instance_ip}
+          - Connection IP: {instance_ip}
           
-          # Run the enhanced email script
-          echo "🚀 Running enhanced email script..."
-          if python3 scripts/send_keys.py \
-            --smtp-host "$SMTP_HOST" \
-            --smtp-port "$SMTP_PORT" \
-            --keys-dir "terraform/keys" \
-            --terraform-dir "terraform" \
-            --users-file "users.yaml" \
-            --test-email "$TEST_EMAIL"; then
-            
-            echo "✅ Enhanced email script completed successfully!"
-            echo ""
-            echo "📧 Email Summary:"
-            echo "- All SSH private keys processed with instance information"
-            echo "- Professional HTML email templates used"
-            echo "- Instance details included (ID, IP, type, region)"
-            echo "- Security instructions and connection guide included"
-            echo "- Test email sent to: $TEST_EMAIL"
-          else
-            echo "❌ Enhanced email script failed!"
-            echo "Falling back to basic email notification..."
-            
-            # Basic fallback - just notify that keys are ready
-            echo "📧 BASIC EMAIL NOTIFICATION:"
-            echo "SSH keys have been generated for users: $USERS"
-            echo "Keys are available in S3 bucket and can be downloaded manually"
-            echo "Contact system administrator for key distribution"
+          Your SSH private key has been generated and is provided below.
+          Use this key to access your EC2 instance.
+          
+          SECURITY IMPORTANT:
+          - Keep this private key secure and never share it
+          - Store it in ~/.ssh/ directory
+          - Set proper permissions: chmod 600 your_key_file
+          - Never commit private keys to version control
+          - This key is unique to your user account
+          
+          Your SSH Private Key:
+          ----------------------------------------
+          {private_key_content}
+          ----------------------------------------
+          
+          USAGE INSTRUCTIONS:
+          ==================
+          
+          Step 1: Save the Private Key
+          - Copy the private key above (between the dashed lines)
+          - Save it to a file: ~/.ssh/{username}_key
+          - Example: mkdir -p ~/.ssh && nano ~/.ssh/{username}_key
+          
+          Step 2: Set Proper Permissions
+          - Set restrictive permissions: chmod 600 ~/.ssh/{username}_key
+          - Verify permissions: ls -la ~/.ssh/{username}_key
+          
+          Step 3: Connect to EC2 Instance
+          - Use this command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
+          - Example: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
+          
+          Step 4: Verify Connection
+          - You should see a welcome message
+          - Run 'whoami' to confirm your username
+          - Run 'pwd' to see your home directory
+          
+          Troubleshooting:
+          - If connection fails, check your private key file
+          - Ensure permissions are correct (chmod 600)
+          - Verify the instance IP address is correct
+          - Check if you're connecting from an allowed network
+          
+          Connection Summary:
+          - Username: {username}
+          - Instance: {instance_name} ({instance_id})
+          - IP Address: {instance_ip}
+          - SSH Command: ssh -i ~/.ssh/{username}_key {username}@{instance_ip}
+          
+          This is an automated message from the AWS EC2 User Provisioning System.
+          If you have any questions or need assistance, please contact your system administrator.
+          """
+              
+              # Attach the email body
+              msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
+              
+              try:
+                  # Connect to SMTP server
+                  print(f"📧 Connecting to SMTP server {smtp_host}:{smtp_port}...")
+                  server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                  
+                  # Start TLS if supported
+                  try:
+                      server.starttls()
+                      print("✅ TLS connection established")
+                  except:
+                      print("ℹ️  TLS not supported, continuing without encryption")
+                  
+                  # Send email
+                  print(f"📤 Sending email to {recipient_email}...")
+                  server.send_message(msg)
+                  server.quit()
+                  
+                  print(f"✅ Email sent successfully for user {username}")
+                  return True
+                  
+              except Exception as e:
+                  print(f"❌ Failed to send email for user {username}: {str(e)}")
+                  return False
+          
+          def main():
+              # Configuration
+              smtp_host = os.environ.get('SMTP_HOST', 'mailhost.umb.com')
+              smtp_port = int(os.environ.get('SMTP_PORT', '25'))
+              recipient_email = os.environ.get('TEST_EMAIL', 'saran.alla@umb.com')
+              
+              # Get instance details from environment variables
+              instance_id = os.environ.get('EC2_INSTANCE_ID', 'Unknown')
+              instance_ip = os.environ.get('EC2_INSTANCE_IP', 'Unknown')
+              instance_name = os.environ.get('EC2_INSTANCE_NAME', 'EC2 Instance')
+              
+              print(f"🏠 Instance Details:")
+              print(f"   - ID: {instance_id}")
+              print(f"   - IP: {instance_ip}")
+              print(f"   - Name: {instance_name}")
+              print()
+              
+              # Read users from users.yaml
+              try:
+                  with open('users.yaml', 'r') as f:
+                      data = yaml.safe_load(f)
+                      users = data['users']
+                      print(f"📋 Found {len(users)} users to process")
+                      print()
+              except Exception as e:
+                  print(f"❌ Error reading users.yaml: {e}")
+                  return 1
+              
+              # Process each user
+              success_count = 0
+              total_count = len(users)
+              
+              for user_data in users:
+                  username = user_data['username']
+                  full_name = user_data['full_name']
+                  
+                  print(f"🧪 Processing user: {username} ({full_name})")
+                  
+                  # Check if key file exists
+                  key_file = f"/tmp/ssh_keys/{username}_private_key"
+                  if not os.path.exists(key_file):
+                      print(f"⚠️  No key file found for {username}")
+                      continue
+                  
+                  # Read private key content
+                  try:
+                      with open(key_file, 'r') as f:
+                          private_key_content = f.read().strip()
+                      print(f"✅ Private key loaded ({len(private_key_content)} characters)")
+                  except Exception as e:
+                      print(f"❌ Error reading key file: {e}")
+                      continue
+                  
+                  # Send email
+                  if send_ssh_key_email(username, full_name, private_key_content, 
+                                     instance_id, instance_ip, instance_name,
+                                     smtp_host, smtp_port, recipient_email):
+                      success_count += 1
+                  
+                  print()
+              
+              # Summary
+              print("=== Email Delivery Summary ===")
+              print(f"Total users processed: {total_count}")
+              print(f"Emails sent successfully: {success_count}")
+              print(f"Emails failed: {total_count - success_count}")
+              print()
+              
+              if success_count > 0:
+                  print(f"✅ SSH keys processed successfully for {success_count} users")
+                  print(f"📧 Check your email at {recipient_email} for SSH key delivery")
+                  return 0
+              else:
+                  print("❌ No emails were processed successfully")
+                  return 1
+          
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
+          
+          # Set environment variables for Python script
+          export SMTP_HOST="$SMTP_HOST"
+          export SMTP_PORT="$SMTP_PORT"
+          export TEST_EMAIL="$TEST_EMAIL"
+          export EC2_INSTANCE_ID="${{ env.EC2_INSTANCE_ID }}"
+          export EC2_INSTANCE_IP="${{ env.EC2_INSTANCE_IP }}"
+          export EC2_INSTANCE_NAME="EC2 Instance"
+          
+          # Try to get instance name from AWS if available
+          if command -v aws &> /dev/null && [ -n "${{ env.EC2_INSTANCE_ID }}" ]; then
+            echo "🔍 Getting instance details from AWS..."
+            instance_name=$(aws ec2 describe-instances --instance-ids "${{ env.EC2_INSTANCE_ID }}" --query 'Reservations[0].Instances[0].Tags[?Key==`Name`].Value' --output text 2>/dev/null || echo "EC2 Instance")
+            export EC2_INSTANCE_NAME="$instance_name"
+            echo "✅ Instance name: $instance_name"
           fi
+          
+          # Run Python script
+          echo "🐍 Running Python SMTP script..."
+          python3 /tmp/send_emails.py
+          
+          # Clean up
+          rm -f /tmp/send_emails.py
+          
+          echo ""
+          echo "📧 Email Summary:"
+          echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
+          echo "- Test Email: $TEST_EMAIL"
+          echo "- Python SMTP implementation completed"
           
       - name: Cleanup
         run: |
@@ -574,13 +715,10 @@ jobs:
           echo "- Authentication: SSH key-based authentication working for all users"
           echo ""
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
-            echo "📧 Enhanced Email Delivery:"
+            echo "📧 Email Delivery:"
             echo "- All SSH private keys sent to: saran.alla@umb.com (testing)"
             echo "- SMTP Server: mailhost.umb.com:25"
-            echo "- Professional HTML email templates used"
-            echo "- Instance information included (ID, IP, type, region)"
-            echo "- Security instructions and connection guide included"
-            echo "- Keys delivered: 6 private keys with complete information"
+            echo "- Keys delivered: 6 private keys with instructions"
             echo ""
           fi
           echo "🔑 Next Steps:"
