@@ -274,6 +274,13 @@ jobs:
           echo "=== Verifying User Access ==="
           
           EC2_IP="${{ env.EC2_INSTANCE_IP }}"
+          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+          
+          echo "🔍 Verification Details:"
+          echo "- EC2 Instance IP: $EC2_IP"
+          echo "- Verification Timestamp: $TIMESTAMP"
+          echo "- Total Users to Verify: $(echo $USERS | wc -w)"
+          echo ""
           
           # Read usernames from users.yaml dynamically
           USERS=$(python3 -c "
@@ -284,28 +291,105 @@ jobs:
               print(' '.join(users))
           ")
           
-          # Test each user's SSH access
+          echo "📋 Users to verify: $USERS"
+          echo ""
+          
+          # Test each user's SSH access with comprehensive verification
           for user in $USERS; do
-            echo "Testing SSH access for user: $user"
+            echo "🧪 Testing SSH access for user: $user"
+            echo "   └─ Creating temporary key file..."
             
             # Create a temporary private key file for testing
             TEMP_KEY="/tmp/test_${user}_key"
             cp "/tmp/ssh_keys/${user}_private_key" "$TEMP_KEY"
             chmod 600 "$TEMP_KEY"
             
-            # Test SSH connection
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 $user@$EC2_IP "echo 'User $user can access EC2 successfully'"; then
-              echo "✅ User $user can access EC2 instance"
+            echo "   └─ Testing basic SSH connection..."
+            # Test basic SSH connection
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 $user@$EC2_IP "echo '✅ Basic SSH connection successful for $user'"; then
+              echo "   ✅ Basic SSH connection: SUCCESS"
             else
-              echo "❌ User $user cannot access EC2 instance"
-            exit 1
-          fi
-          
+              echo "   ❌ Basic SSH connection: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
+            echo "   └─ Testing user identity and home directory..."
+            # Test user identity and home directory access
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "whoami && pwd && echo 'Home directory contents:' && ls -la"; then
+              echo "   ✅ User identity and home directory: SUCCESS"
+            else
+              echo "   ❌ User identity and home directory: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
+            echo "   └─ Creating verification file in user's home directory..."
+            # Create a verification file in the user's home directory
+            VERIFY_FILE="user_verification_${TIMESTAMP}.txt"
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'User $user successfully logged in at $(date)' > ~/$VERIFY_FILE && echo 'Verification file created successfully' && ls -la ~/$VERIFY_FILE"; then
+              echo "   ✅ Verification file creation: SUCCESS"
+              echo "   📄 File created: ~/$VERIFY_FILE"
+            else
+              echo "   ❌ Verification file creation: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
+            echo "   └─ Testing file write permissions..."
+            # Test file write permissions
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'Testing write permissions at $(date)' >> ~/$VERIFY_FILE && echo 'Write permissions test: SUCCESS'"; then
+              echo "   ✅ File write permissions: SUCCESS"
+            else
+              echo "   ❌ File write permissions: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
+            echo "   └─ Displaying verification file contents..."
+            # Display the verification file contents
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo '=== Verification File Contents ===' && cat ~/$VERIFY_FILE && echo '=== End of File ==='"; then
+              echo "   ✅ File read access: SUCCESS"
+            else
+              echo "   ❌ File read access: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
+            echo "   └─ Testing SSH key authentication..."
+            # Test SSH key authentication specifically
+            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o PasswordAuthentication=no $user@$EC2_IP "echo 'SSH key authentication successful for $user'"; then
+              echo "   ✅ SSH key authentication: SUCCESS"
+            else
+              echo "   ❌ SSH key authentication: FAILED"
+              rm -f "$TEMP_KEY"
+              exit 1
+            fi
+            
             # Clean up temporary key
             rm -f "$TEMP_KEY"
+            
+            echo "🎉 User $user: ALL VERIFICATIONS PASSED ✅"
+            echo "   └─ SSH access: ✅"
+            echo "   └─ Home directory: ✅"
+            echo "   └─ File creation: ✅"
+            echo "   └─ Write permissions: ✅"
+            echo "   └─ Read permissions: ✅"
+            echo "   └─ Key authentication: ✅"
+            echo ""
           done
           
+          echo "🎊 VERIFICATION COMPLETE! 🎊"
           echo "✅ All users can access EC2 instance successfully"
+          echo "✅ All users have proper file permissions"
+          echo "✅ All users can create and read files"
+          echo "✅ SSH key authentication working for all users"
+          echo ""
+          echo "📋 Verification Summary:"
+          echo "- Total users verified: $(echo $USERS | wc -w)"
+          echo "- Users: $USERS"
+          echo "- Verification timestamp: $TIMESTAMP"
+          echo "- All tests: PASSED ✅"
           
       - name: Create Terraform Variables (Simplified)
         run: |
@@ -390,9 +474,23 @@ jobs:
           echo "- SSH Keys: Available in S3 bucket"
           echo "- Access Verified: All users can SSH to EC2"
           echo ""
+          echo "🔍 Verification Details:"
+          echo "- Verification Timestamp: $(date +"%Y%m%d-%H%M%S")"
+          echo "- Verification Files Created: user_verification_*.txt in each user's home directory"
+          echo "- All Users Tested: SSH access, file creation, read/write permissions, key authentication"
+          echo ""
+          echo "✅ Verification Results:"
+          echo "- SSH Access: All users can connect successfully"
+          echo "- File Operations: All users can create, read, and write files"
+          echo "- Permissions: All users have proper home directory access"
+          echo "- Authentication: SSH key-based authentication working for all users"
+          echo ""
           echo "🔑 Next Steps:"
           echo "1. Users download their private keys from S3"
           echo "2. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
           echo "3. All users have full access to their home directories"
+          echo "4. Verification files created: ~/user_verification_*.txt"
+          echo ""
+          echo "🎯 No manual verification needed - all tests passed automatically!"
 
  
