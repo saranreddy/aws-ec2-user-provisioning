@@ -159,8 +159,16 @@ resource "null_resource" "provision_users" {
         for user in yamldecode(data.local_file.users_config.content).users : [
           "echo 'Processing user: ${user.username}'",
 
-          # Create user account
-          "sudo useradd -m -s /bin/bash -c '${user.full_name}' ${user.username} || echo 'User ${user.username} already exists'",
+          # Check if user already exists and create if needed
+          "if ! id '${user.username}' >/dev/null 2>&1; then",
+          "  echo 'Creating new user account for ${user.username}...'",
+          "  sudo useradd -m -s /bin/bash -c '${user.full_name}' ${user.username}",
+          "  echo '✅ User ${user.username} created successfully'",
+          "else",
+          "  echo 'User ${user.username} already exists, updating account...'",
+          "  sudo usermod -c '${user.full_name}' ${user.username}",
+          "  echo '✅ User ${user.username} account updated'",
+          "fi",
 
           # Create .ssh directory with proper permissions
           "sudo mkdir -p /home/${user.username}/.ssh",

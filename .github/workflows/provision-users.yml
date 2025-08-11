@@ -481,8 +481,9 @@ jobs:
           # Ensure proper permissions
           chmod 755 /tmp/ssh_keys
           
-          # Generate SSH keys for each user
-          echo "Generating SSH keys for users..."
+          # Smart SSH key management - only generate if needed
+          echo "=== Smart SSH Key Management ==="
+          echo "Checking existing keys in S3 bucket: $BUCKET_NAME"
           
           # Check if ssh-keygen is available
           if ! command -v ssh-keygen >/dev/null 2>&1; then
@@ -496,51 +497,111 @@ jobs:
           fi
           
           for user in alice bob charlie diana eve; do
-            echo "Generating keys for user: $user"
+            echo "=== Processing user: $user ==="
             
-            # Generate RSA 4096-bit key pair with better error handling
-            if ssh-keygen -t rsa -b 4096 \
-              -f /tmp/ssh_keys/${user}_key \
-              -N "" \
-              -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)" 2>&1; then
+            # Check if user's keys already exist in S3
+            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
+               aws s3 ls s3://$BUCKET_NAME/keys/${user}_public_key >/dev/null 2>&1; then
               
-              # Rename files for clarity
-              mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
-              mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+              echo "✅ Keys for $user already exist in S3, downloading existing keys..."
               
-              # Verify key generation
-              if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
-                echo "✅ Generated keys for $user"
+              # Download existing keys
+              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key /tmp/ssh_keys/${user}_private_key && \
+                 aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/ssh_keys/${user}_public_key; then
                 
-                # Show key fingerprint for verification
-                echo "Key fingerprint for $user:"
-                ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
+                echo "✅ Downloaded existing keys for $user"
+                
+                # Verify key integrity
+                if ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key >/dev/null 2>&1; then
+                  echo "✅ Key integrity verified for $user"
+                  echo "Key fingerprint:"
+                  ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
+                else
+                  echo "⚠️  Existing key for $user appears corrupted, will regenerate..."
+                  # Remove corrupted keys and fall through to generation
+                  rm -f /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_public_key
+                fi
               else
-                echo "❌ Failed to generate keys for $user"
+                echo "⚠️  Failed to download existing keys for $user, will regenerate..."
+                # Remove failed downloads and fall through to generation
+                rm -f /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_public_key
+              fi
+            fi
+            
+            # Generate new keys only if they don't exist or are corrupted
+            if [ ! -f "/tmp/ssh_keys/${user}_private_key" ] || [ ! -f "/tmp/ssh_keys/${user}_public_key" ]; then
+              echo "🔄 Generating new SSH keys for $user..."
+              
+              # Generate RSA 4096-bit key pair
+              if ssh-keygen -t rsa -b 4096 \
+                -f /tmp/ssh_keys/${user}_key \
+                -N "" \
+                -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)" 2>&1; then
+                
+                # Rename files for clarity
+                mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
+                mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+                
+                # Verify key generation
+                if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+                  echo "✅ Generated new keys for $user"
+                  
+                  # Show key fingerprint for verification
+                  echo "Key fingerprint for $user:"
+                  ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
+                else
+                  echo "❌ Failed to generate keys for $user"
+                  exit 1
+                fi
+              else
+                echo "❌ Failed to generate SSH keys for $user"
+                echo "This might be due to:"
+                echo "1. Insufficient disk space"
+                echo "2. Permission issues in /tmp"
+                echo "3. ssh-keygen command failure"
                 exit 1
               fi
             else
-              echo "❌ Failed to generate SSH keys for $user"
-              echo "This might be due to:"
-              echo "1. Insufficient disk space"
-              echo "2. Permission issues in /tmp"
-              echo "3. ssh-keygen command failure"
-              exit 1
+              echo "✅ Using existing keys for $user (no generation needed)"
             fi
           done
           
-          # Upload keys to S3 with encryption
-          echo "Uploading SSH keys to S3..."
+          # Smart S3 upload - only upload new or updated keys
+          echo "=== Smart S3 Upload ==="
           for user in alice bob charlie diana eve; do
-            echo "Uploading keys for user: $user"
+            echo "=== Processing S3 upload for user: $user ==="
             
-            # Check if keys already exist (conditional upload)
-            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1; then
-              echo "⚠️  Keys for $user already exist in S3, backing up old keys..."
-              aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key \
-                s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_private_key || true
-              aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key \
-                s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_public_key || true
+            # Check if keys already exist in S3
+            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
+               aws s3 ls s3://$BUCKET_NAME/keys/${user}_public_key >/dev/null 2>&1; then
+              
+              echo "✅ Keys for $user already exist in S3"
+              
+              # Compare existing vs new keys to see if upload is needed
+              echo "Comparing existing vs new keys for $user..."
+              
+              # Download existing public key for comparison
+              aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/existing_${user}_public_key >/dev/null 2>&1
+              
+              # Compare keys
+              if cmp -s /tmp/existing_${user}_public_key /tmp/ssh_keys/${user}_public_key; then
+                echo "✅ Keys for $user are identical, no upload needed"
+                # Clean up comparison file
+                rm -f /tmp/existing_${user}_public_key
+                continue
+              else
+                echo "🔄 Keys for $user have changed, will upload new keys..."
+                # Backup old keys before overwriting
+                echo "Creating backup of old keys for $user..."
+                aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key \
+                  s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_private_key || true
+                aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key \
+                  s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_public_key || true
+                # Clean up comparison file
+                rm -f /tmp/existing_${user}_public_key
+              fi
+            else
+              echo "🔄 No existing keys found for $user, will upload new keys..."
             fi
             
             # Upload private key with server-side encryption
@@ -600,8 +661,35 @@ jobs:
             s3://$BUCKET_NAME/metadata/key-generation-$(date +%Y%m%d-%H%M%S).json \
             --sse AES256
           
-          echo "✅ SSH key generation and S3 upload completed successfully"
+          echo "=== Smart Workflow Summary ==="
+          echo "✅ SSH key management completed successfully"
           echo "Keys stored in bucket: s3://$BUCKET_NAME/keys/"
+          
+          # Count how many keys were reused vs generated
+          REUSED_KEYS=0
+          NEW_KEYS=0
+          for user in alice bob charlie diana eve; do
+            if aws s3 ls s3://$BUCKET_NAME/keys/backup/ >/dev/null 2>&1; then
+              # Check if backup was created (indicating key was updated)
+              if aws s3 ls s3://$BUCKET_NAME/keys/backup/*_${user}_* >/dev/null 2>&1; then
+                echo "🔄 $user: Keys updated (backup created)"
+                ((NEW_KEYS++))
+              else
+                echo "✅ $user: Existing keys reused"
+                ((REUSED_KEYS++))
+              fi
+            else
+              echo "🆕 $user: New keys generated"
+              ((NEW_KEYS++))
+            fi
+          done
+          
+          echo ""
+          echo "📊 Summary:"
+          echo "- Keys reused: $REUSED_KEYS"
+          echo "- Keys generated/updated: $NEW_KEYS"
+          echo "- Total users: 5"
+          echo ""
           
           # Store bucket name for Terraform to use
           echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
