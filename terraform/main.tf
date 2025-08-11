@@ -169,7 +169,13 @@ resource "null_resource" "provision_users" {
 
           # Install public key directly from variable
           "echo 'Installing SSH key for ${user.username}...'",
-          "echo '${var.user_public_keys[user.username]}' | sudo tee /home/${user.username}/.ssh/authorized_keys",
+          "if [ -n '${var.user_public_keys[user.username]}' ]; then",
+          "  echo '${var.user_public_keys[user.username]}' | sudo tee /home/${user.username}/.ssh/authorized_keys",
+          "  echo '✅ SSH key installed for ${user.username}'",
+          "else",
+          "  echo '⚠️  No SSH key available for ${user.username}, skipping key installation'",
+          "  echo '# SSH key not available during this run' | sudo tee /home/${user.username}/.ssh/authorized_keys",
+          "fi",
           "sudo chown ${user.username}:${user.username} /home/${user.username}/.ssh/authorized_keys",
           "sudo chmod 600 /home/${user.username}/.ssh/authorized_keys",
 

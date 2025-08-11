@@ -624,6 +624,8 @@ jobs:
             fi
           done
           
+          # Note: Public keys will be passed to Terraform via environment variables
+          
           # Clean up temporary files
           rm -rf /tmp/ssh_keys /tmp/key_metadata.json
           echo "✅ Temporary files cleaned up"
@@ -998,7 +1000,6 @@ jobs:
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
-              -var="user_public_keys={\"alice\"=\"${{ env.user_public_keys_alice }}\",\"bob\"=\"${{ env.user_public_keys_bob }}\",\"charlie\"=\"${{ env.user_public_keys_charlie }}\",\"diana\"=\"${{ env.user_public_keys_diana }}\",\"eve\"=\"${{ env.user_public_keys_eve }}\"}" \
               -detailed-exitcode || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
@@ -1014,7 +1015,6 @@ jobs:
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
-              -var="user_public_keys={\"alice\"=\"${{ env.user_public_keys_alice }}\",\"bob\"=\"${{ env.user_public_keys_bob }}\",\"charlie\"=\"${{ env.user_public_keys_charlie }}\",\"diana\"=\"${{ env.user_public_keys_diana }}\",\"eve\"=\"${{ env.user_public_keys_eve }}\"}" \
               -out=tfplan || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
