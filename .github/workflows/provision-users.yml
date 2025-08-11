@@ -59,6 +59,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
           
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -448,14 +453,25 @@ jobs:
             exit 1
           fi
           
+      - name: Install Python Dependencies
+        if: github.event.inputs.send_emails == 'true'
+        run: |
+          echo "=== Installing Python Dependencies ==="
+          
+          # Check Python version
+          echo "🐍 Python version:"
+          python3 --version
+          
+          # Install Python dependencies
+          echo "📦 Installing Python dependencies..."
+          pip3 install pyyaml
+          
+          echo "✅ Python dependencies installed successfully"
+          
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
           echo "=== Sending SSH Keys via Enhanced Email Script ==="
-          
-          # Install Python dependencies
-          echo "📦 Installing Python dependencies..."
-          pip install pyyaml
           
           # Set SMTP configuration for UMB
           SMTP_HOST="mailhost.umb.com"
