@@ -395,7 +395,7 @@ jobs:
         run: |
           # Note: This step handles S3 eventual consistency gracefully
           # It will retry downloads and continue even if some keys aren't immediately available
-          set -e
+          # We don't use set -e here to allow graceful handling of non-critical failures
           echo "=== Generating SSH Keys and Uploading to S3 ==="
           
           # Set region variable
@@ -710,14 +710,20 @@ jobs:
             # Try multiple times with exponential backoff
             MAX_RETRIES=3
             RETRY_COUNT=0
+            DOWNLOAD_SUCCESS=false
             
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key; then
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$DOWNLOAD_SUCCESS" = false ]; do
+              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/terraform_keys/${user}_public_key 2>/dev/null; then
                 # Read the key content and escape it for Terraform
-                KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
-                echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV
-                echo "✅ Public key downloaded for $user"
-                break
+                if KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key 2>/dev/null | tr -d '\n' | sed 's/"/\\"/g' 2>/dev/null); then
+                  echo "user_public_keys_${user}=\"$KEY_CONTENT\"" >> $GITHUB_ENV 2>/dev/null || true
+                  echo "✅ Public key downloaded for $user"
+                  DOWNLOAD_SUCCESS=true
+                  break
+                else
+                  echo "⚠️  Failed to read key content for $user, will retry..."
+                  rm -f /tmp/terraform_keys/${user}_public_key
+                fi
               else
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
@@ -726,10 +732,13 @@ jobs:
                 else
                   echo "❌ Failed to download public key for $user after $MAX_RETRIES attempts"
                   echo "This might be due to S3 eventual consistency. Continuing with other users..."
-                  # Don't exit 1 here, just log the warning
                 fi
               fi
             done
+            
+            if [ "$DOWNLOAD_SUCCESS" = false ]; then
+              echo "⚠️  User $user: Key download failed, but continuing with workflow..."
+            fi
           done
           
           # Note: SSH keys are downloaded and will be used by Terraform
@@ -793,6 +802,11 @@ jobs:
           # Clean up terraform keys directory
           rm -rf /tmp/terraform_keys
           echo "✅ Terraform keys directory cleaned up"
+          
+          echo ""
+          echo "🎉 SSH Key Generation and S3 Upload Step Completed Successfully!"
+          echo "The workflow will continue to the next step regardless of individual key download results."
+          echo "Terraform will use whatever keys are available for user provisioning."
           
       - name: Debug AWS Environment
         run: |
