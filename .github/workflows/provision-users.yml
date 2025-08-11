@@ -161,7 +161,6 @@ jobs:
           done
           
           echo "  }" >> terraform.tfvars
-          echo "}" >> terraform.tfvars
           
           echo ""
           echo "✅ terraform.tfvars created with SSH keys"
