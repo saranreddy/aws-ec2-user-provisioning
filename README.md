@@ -187,24 +187,20 @@ When manually triggering the workflow, you can specify:
 
 4. **Send Emails** (optional):
    ```bash
-   # Enhanced email with instance information
-   python3 scripts/send_keys.py \
-     --smtp-host "smtp.gmail.com" \
-     --smtp-user "your-email@gmail.com" \
-     --smtp-pass "your-app-password" \
-     --users-file users.yaml \
-     --keys-dir terraform/keys \
-     --terraform-dir terraform
-   
-   # Test email (port 25, no auth)
+   # Send keys to test email (port 25, no auth)
    python3 scripts/send_keys.py \
      --smtp-host "mailhost.umb.com" \
      --smtp-port 25 \
-     --keys-dir terraform/keys \
-     --terraform-dir terraform \
-     --users-file users.yaml \
-     --test-email "your-email@example.com" \
-     --dry-run
+     --keys-dir /tmp/ssh_keys \
+     --test-email "saran.alla@umb.com"
+   
+   # Send keys to actual users (port 587, with auth)
+   python3 scripts/send_keys.py \
+     --smtp-host "smtp.gmail.com" \
+     --smtp-port 587 \
+     --smtp-user "your-email@gmail.com" \
+     --smtp-pass "your-app-password" \
+     --keys-dir /tmp/ssh_keys
    ```
 
 ## 🔧 Workflow Details
@@ -227,15 +223,13 @@ The workflow consists of three main jobs:
 
 ### Email Process
 
-1. **Load Keys**: Reads generated private keys from Terraform
-2. **Get Instance Info**: Retrieves instance details from Terraform outputs
-3. **Create Enhanced Emails**: Generates personalized HTML/text emails with:
+1. **Load Keys**: Reads generated private keys from the keys directory
+2. **Create Emails**: Generates personalized emails with complete information:
    - Username and full name
-   - Instance ID and type
-   - IP address (private preferred for security)
-   - Region information
-   - SSH connection instructions
-4. **Send via SMTP**: Delivers emails with SSH keys attached
+   - Instance details (ID, IP, type, region)
+   - Complete SSH private key content
+   - Security instructions and usage guide
+3. **Send via SMTP**: Delivers emails using Python's smtplib module
 
 ## 🔒 Security Features
 

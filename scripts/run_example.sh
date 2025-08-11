@@ -111,7 +111,7 @@ run_terraform_apply() {
 
 # Test email script
 test_email_script() {
-    print_status "Testing email script (dry run)..."
+    print_status "Testing email script..."
     
     # Check if SMTP environment variables are set
     if [ -z "$SMTP_HOST" ] || [ -z "$SMTP_USER" ] || [ -z "$SMTP_PASS" ]; then
@@ -125,12 +125,12 @@ test_email_script() {
     
     python3 scripts/send_keys.py \
         --smtp-host "$SMTP_HOST" \
+        --smtp-port "$SMTP_PORT" \
         --smtp-user "$SMTP_USER" \
         --smtp-pass "$SMTP_PASS" \
         --dry-run \
         --users-file users.yaml \
-        --keys-dir terraform/keys \
-        --terraform-dir terraform
+        --keys-dir /tmp/ssh_keys
     
     print_success "Email script test completed"
 }
