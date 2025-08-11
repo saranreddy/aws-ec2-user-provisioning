@@ -158,32 +158,72 @@ jobs:
           echo "Note: S3 backend is disabled for testing SSH key management functionality"
           
           # Initialize Terraform without S3 backend
-          terraform init || {
+          echo "Running terraform init..."
+          if terraform init 2>&1; then
+            echo "✅ Terraform initialized successfully with local backend"
+            echo "State will be stored locally for testing"
+          else
             echo "❌ Terraform initialization failed"
             echo "This might be due to:"
             echo "1. Network connectivity issues"
             echo "2. Provider download problems"
             echo "3. Configuration syntax errors"
-            exit 1
-          }
-          
-          echo "✅ Terraform initialized successfully with local backend"
-          echo "State will be stored locally for testing"
+            echo ""
+            echo "Attempting to get more detailed error information..."
+            terraform init 2>&1 || {
+              echo "❌ Terraform initialization failed with detailed output above"
+              exit 1
+            }
+          fi
           
           # Verify configuration
+          echo "Terraform version:"
           terraform version
+          echo "Terraform providers:"
           terraform providers
           
       - name: Terraform Validate
         run: |
           cd terraform
           echo "Validating Terraform configuration..."
-          terraform validate || {
+          
+          # Show Terraform version and configuration details
+          echo "Terraform version:"
+          terraform version
+          
+          echo "Current directory: $(pwd)"
+          echo "Terraform files present:"
+          ls -la *.tf
+          
+          echo "Terraform providers:"
+          terraform providers
+          
+          # Try validation with detailed output
+          echo "Running terraform validate..."
+          
+          # First try with standard output to see any warnings
+          echo "Standard validation output:"
+          terraform validate 2>&1 && {
+            echo "✅ Terraform configuration is valid"
+          } || {
             echo "❌ Terraform validation failed"
-            echo "Please check the configuration syntax and provider versions."
-            exit 1
+            echo "Attempting to get more detailed error information..."
+            
+            # Try to get specific validation errors with more verbose output
+            echo "Detailed validation attempt:"
+            terraform validate -detailed-exitcode 2>&1 || {
+              echo "❌ Terraform validation failed with detailed output above"
+              echo "Common causes:"
+              echo "1. Syntax errors in .tf files"
+              echo "2. Provider version incompatibilities"
+              echo "3. Variable definition issues"
+              echo "4. Resource reference problems"
+              echo "5. Missing required providers"
+              echo ""
+              echo "Please check the error output above for specific issues"
+              exit 1
+            }
           }
-          echo "✅ Terraform configuration is valid"
           
       - name: Validate Users YAML
         run: |
