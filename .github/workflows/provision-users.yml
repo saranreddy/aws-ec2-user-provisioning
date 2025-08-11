@@ -481,8 +481,12 @@ jobs:
             local username="$1"
             local full_name="$2"
             local key_file="$3"
+            local instance_id="$4"
+            local instance_ip="$5"
             
             echo "📧 Sending email for user: $username"
+            echo "🏠 Instance ID: $instance_id"
+            echo "🌐 Instance IP: $instance_ip"
             
             # Read the private key content first
             local private_key_content=""
@@ -494,9 +498,7 @@ jobs:
               return 1
             fi
             
-            # Get instance details from environment variables
-            local instance_id="${{ env.EC2_INSTANCE_ID }}"
-            local instance_ip="${{ env.EC2_INSTANCE_IP }}"
+            # Get instance details from parameters
             local instance_name="EC2 Instance"
             
             # Try to get instance name from AWS if available
@@ -753,13 +755,17 @@ jobs:
                       break
           ")
             
+            # Get instance details from environment variables
+            local instance_id="${{ env.EC2_INSTANCE_ID }}"
+            local instance_ip="${{ env.EC2_INSTANCE_IP }}"
+            
             # Check if key file exists
             key_file="/tmp/ssh_keys/${user}_private_key"
             if [ -f "$key_file" ]; then
               echo "✅ Key file found for $user"
               
               # Send email
-              if send_email_via_shell "$user" "$user_info" "$key_file"; then
+              if send_email_via_shell "$user" "$user_info" "$key_file" "$instance_id" "$instance_ip"; then
                 success_count=$((success_count + 1))
               fi
             else
