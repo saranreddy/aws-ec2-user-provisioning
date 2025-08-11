@@ -9,7 +9,7 @@ set -e  # Exit on any error
 # Input validation
 if [ $# -ne 4 ]; then
     echo "❌ Usage: $0 <user> <public_key> <ssh_user> <ec2_ip>"
-    echo "   Example: $0 alice 'ssh-rsa AAAAB3NzaC1yc2E...' ec2-user 10.0.1.100"
+    echo "   Example: $0 rai002 'ssh-rsa AAAAB3NzaC1yc2E...' ec2-user 10.0.1.100"
     exit 1
 fi
 

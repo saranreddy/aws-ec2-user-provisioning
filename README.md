@@ -126,13 +126,13 @@ Define users in the `users.yaml` file:
 
 ```yaml
 users:
-  - username: alice
-    email: alice@example.com
-    full_name: "Alice Johnson"
+  - username: rai002
+    email: raghavee.ai@umb.com
+    full_name: "Raghavee A"
     
-  - username: bob
-    email: bob@example.com
-    full_name: "Bob Smith"
+  - username: hhe004
+    email: harsha-venkatraman.hegde@umb.com
+    full_name: "Hasha Venkararaman"
 ```
 
 ### 2. Workflow Inputs

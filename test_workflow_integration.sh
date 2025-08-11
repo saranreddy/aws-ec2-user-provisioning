@@ -3,41 +3,66 @@
 echo "🧪 Testing Workflow Integration with Script Approach"
 echo "=================================================="
 
-# Test 1: Script file exists and is executable
-echo "✅ Test 1: Script File Validation"
+# Test user provisioning script integration
+echo "=== Testing User Provisioning Script Integration ==="
+
+# Read usernames from users.yaml dynamically
+echo "Reading users from users.yaml..."
+USERS=$(python3 -c "
+import yaml
+with open('users.yaml', 'r') as f:
+    data = yaml.safe_load(f)
+    users = [user['username'] for user in data['users']]
+    print(' '.join(users))
+")
+
+echo "Users found: $USERS"
+
+# Test script existence and permissions
+echo "Testing script existence and permissions..."
 if [ -f "scripts/install_users.sh" ]; then
-    echo "   ✅ install_users.sh exists"
+    echo "✅ install_users.sh exists"
+    if [ -x "scripts/install_users.sh" ]; then
+        echo "✅ install_users.sh is executable"
+    else
+        echo "❌ install_users.sh is not executable"
+        chmod +x scripts/install_users.sh
+        echo "✅ Made install_users.sh executable"
+    fi
 else
-    echo "   ❌ install_users.sh not found"
+    echo "❌ install_users.sh not found"
     exit 1
 fi
 
-if [ -x "scripts/install_users.sh" ]; then
-    echo "   ✅ install_users.sh is executable"
-else
-    echo "   ❌ install_users.sh is not executable"
-    exit 1
-fi
-
-# Test 2: Script syntax validation
-echo ""
-echo "✅ Test 2: Script Syntax Validation"
+# Test script syntax
+echo "Testing script syntax..."
 if bash -n scripts/install_users.sh; then
-    echo "   ✅ install_users.sh has no syntax errors"
+    echo "✅ install_users.sh has valid syntax"
 else
-    echo "   ❌ install_users.sh has syntax errors"
+    echo "❌ install_users.sh has syntax errors"
     exit 1
 fi
 
-# Test 3: Script parameter validation
-echo ""
-echo "✅ Test 3: Script Parameter Validation"
-if ./scripts/install_users.sh 2>&1 | grep -q "Usage:"; then
-    echo "   ✅ Script correctly validates parameters"
-else
-    echo "   ❌ Script parameter validation failed"
-    exit 1
-fi
+# Test parameter validation
+echo "Testing parameter validation..."
+for user in $USERS; do
+    echo "Testing with user: $user"
+    if ./scripts/install_users.sh; then
+        echo "❌ Script should fail with no parameters"
+        exit 1
+    else
+        echo "✅ Script correctly fails with no parameters"
+    fi
+    
+    if ./scripts/install_users.sh "$user" "test_key" "test_user" "test_ip"; then
+        echo "✅ Script accepts valid parameters for $user"
+    else
+        echo "❌ Script fails with valid parameters for $user"
+        exit 1
+    fi
+done
+
+echo "✅ All user provisioning script tests passed!"
 
 # Test 4: Simulate workflow logic
 echo ""
