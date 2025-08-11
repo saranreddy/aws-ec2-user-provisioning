@@ -23,6 +23,12 @@ variable "instance_ids" {
   }
 }
 
+variable "ssh_keys_bucket_name" {
+  description = "Name of the S3 bucket containing SSH keys (created by the workflow)"
+  type        = string
+  default     = "ec2-user-provisioning-default"
+}
+
 variable "ssh_private_key_path" {
   description = "Path to the private SSH key for connecting to EC2 instances"
   type        = string

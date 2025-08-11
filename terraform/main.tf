@@ -14,8 +14,9 @@ data "local_file" "users_config" {
 # Keys are pre-generated and stored in S3 bucket, then retrieved as needed
 
 # S3 bucket for storing SSH keys
+# Use the bucket created by the workflow, or create a new one if it doesn't exist
 resource "aws_s3_bucket" "ssh_keys" {
-  bucket = "terraform-state-ec2-user-provisioning"
+  bucket = var.ssh_keys_bucket_name
 
   tags = var.tags
 }

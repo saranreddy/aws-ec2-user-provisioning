@@ -563,6 +563,10 @@ jobs:
           echo "✅ SSH key generation and S3 upload completed successfully"
           echo "Keys stored in bucket: s3://$BUCKET_NAME/keys/"
           
+          # Store bucket name for Terraform to use
+          echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
+          echo "✅ Bucket name stored for Terraform: $BUCKET_NAME"
+          
           # Clean up temporary files
           rm -rf /tmp/ssh_keys /tmp/key_metadata.json
           echo "✅ Temporary files cleaned up"
@@ -936,6 +940,7 @@ jobs:
             terraform plan \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
+              -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
               -detailed-exitcode || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
@@ -950,6 +955,7 @@ jobs:
             terraform plan \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
+              -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
               -out=tfplan || {
               echo "❌ Terraform plan failed"
               echo "Common causes:"
