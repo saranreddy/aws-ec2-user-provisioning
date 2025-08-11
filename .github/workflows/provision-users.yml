@@ -219,28 +219,28 @@ jobs:
               # Read the public key content
               PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
               
-                             # Install the key on EC2
-               ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP << 'EOF'
-                 # Create user if it doesn't exist
-                 if ! id "$user" &>/dev/null; then
-                   sudo useradd -m -s /bin/bash $user
-                   echo "✅ Created user $user"
-                 else
-                   echo "✅ User $user already exists"
-                 fi
-                 
-                 # Create .ssh directory for user
-                 sudo mkdir -p /home/$user/.ssh
-                 sudo chown $user:$user /home/$user/.ssh
-                 sudo chmod 700 /home/$user/.ssh
-                 
-                 # Add public key to authorized_keys
-                 echo "$PUBLIC_KEY" | sudo tee -a /home/$user/.ssh/authorized_keys
-                 sudo chown $user:$user /home/$user/.ssh/authorized_keys
-                 sudo chmod 600 /home/$user/.ssh/authorized_keys
-                 
-                 echo "✅ SSH key installed for $user"
-               EOF
+              # Install the key on EC2
+              ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no $SSH_USER@$EC2_IP << EOF
+                # Create user if it doesn't exist
+                if ! id "$user" >/dev/null 2>&1; then
+                  sudo useradd -m -s /bin/bash $user
+                  echo "✅ Created user $user"
+                else
+                  echo "✅ User $user already exists"
+                fi
+                
+                # Create .ssh directory for user
+                sudo mkdir -p /home/$user/.ssh
+                sudo chown $user:$user /home/$user/.ssh
+                sudo chmod 700 /home/$user/.ssh
+                
+                # Add public key to authorized_keys
+                echo "$PUBLIC_KEY" | sudo tee -a /home/$user/.ssh/authorized_keys
+                sudo chown $user:$user /home/$user/.ssh/authorized_keys
+                sudo chmod 600 /home/$user/.ssh/authorized_keys
+                
+                echo "✅ SSH key installed for $user"
+              EOF
               
               echo "✅ Key installed for $user on EC2"
             else
@@ -287,14 +287,12 @@ jobs:
           echo "=== Creating Simplified Terraform Variables ==="
           
           # Create minimal terraform.tfvars for user provisioning
-          cat > terraform.tfvars << EOF
-          instance_ids = ["${{ github.event.inputs.instance_ids }}"]
-          aws_region = "${{ inputs.aws_region }}"
-          dry_run = ${{ github.event.inputs.dry_run }}
-          ssh_private_key_path = "~/.ssh/ec2-provisioning-key"
-          ssh_user = "ec2-user"
-          users_file = "../users.yaml"
-          EOF
+          echo 'instance_ids = ["${{ github.event.inputs.instance_ids }}"]' > terraform.tfvars
+          echo 'aws_region = "${{ inputs.aws_region }}"' >> terraform.tfvars
+          echo 'dry_run = ${{ github.event.inputs.dry_run }}' >> terraform.tfvars
+          echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
+          echo 'ssh_user = "ec2-user"' >> terraform.tfvars
+          echo 'users_file = "../users.yaml"' >> terraform.tfvars
           
           echo "✅ terraform.tfvars created (no SSH keys needed)"
           
