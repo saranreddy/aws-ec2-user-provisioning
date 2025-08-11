@@ -60,6 +60,8 @@ on:
 env:
   TF_VERSION: "1.5.7"
   PYTHON_VERSION: "3.9"
+  # Optional: Set this to use an existing S3 bucket instead of creating a new one
+  # EXISTING_S3_BUCKET: ""
 
 jobs:
   validate:
@@ -224,7 +226,7 @@ jobs:
           $SUDO apt-get update || true
           
           # Install packages with better error handling
-          $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli || {
+          $SUDO apt-get install -y curl unzip python3 python3-pip jq awscli openssh-client || {
             echo "⚠️  Some packages failed to install, checking what's available..."
             # Check what's already available
             command -v curl >/dev/null 2>&1 || echo "curl not available"
@@ -296,25 +298,125 @@ jobs:
           echo "Caller Identity:"
           aws sts get-caller-identity
           
+      - name: Check Required AWS Permissions
+        run: |
+          set -e
+          echo "=== Checking Required AWS Permissions ==="
+          
+          # Test S3 permissions
+          echo "Testing S3 permissions..."
+          
+          # Create a test bucket name
+          TEST_BUCKET="permission-test-$(date +%Y%m%d-%H%M%S)"
+          
+          # Test bucket creation permission
+          if aws s3 mb s3://$TEST_BUCKET --region ${{ inputs.aws_region }} 2>&1; then
+            echo "✅ S3 bucket creation permission: OK"
+            
+            # Test object upload permission
+            echo "test content" > /tmp/test_file
+            if aws s3 cp /tmp/test_file s3://$TEST_BUCKET/test_file 2>&1; then
+              echo "✅ S3 object upload permission: OK"
+              
+              # Test object listing permission
+              if aws s3 ls s3://$TEST_BUCKET/ 2>&1; then
+                echo "✅ S3 object listing permission: OK"
+                
+                # Test object download permission
+                if aws s3 cp s3://$TEST_BUCKET/test_file /tmp/test_download 2>&1; then
+                  echo "✅ S3 object download permission: OK"
+                else
+                  echo "❌ S3 object download permission: FAILED"
+                fi
+              else
+                echo "❌ S3 object listing permission: FAILED"
+              fi
+            else
+              echo "❌ S3 object upload permission: FAILED"
+            fi
+            
+            # Clean up test bucket
+            aws s3 rb s3://$TEST_BUCKET --force 2>&1 || true
+            rm -f /tmp/test_file /tmp/test_download
+          else
+            echo "❌ S3 bucket creation permission: FAILED"
+            echo "The role needs the following S3 permissions:"
+            echo "- s3:CreateBucket"
+            echo "- s3:PutObject"
+            echo "- s3:GetObject"
+            echo "- s3:ListBucket"
+            echo ""
+            echo "Please add these permissions to the role: ${{ secrets.aws_ec2_creation_role }}"
+          fi
+          
+          echo "=== End Permission Check ==="
+          
       - name: Generate and Upload SSH Keys to S3
         run: |
           set -e
           echo "=== Generating SSH Keys and Uploading to S3 ==="
           
-          BUCKET_NAME="terraform-state-ec2-user-provisioning"
-          REGION="${{ inputs.aws_region }}"
-          
-          # Create S3 bucket if it doesn't exist
-          echo "Creating S3 bucket if it doesn't exist: $BUCKET_NAME"
-          aws s3 mb s3://$BUCKET_NAME --region $REGION || {
-            echo "ℹ️  S3 bucket might already exist, checking..."
+          # Check if using existing bucket or creating new one
+          if [ -n "${{ env.EXISTING_S3_BUCKET }}" ]; then
+            BUCKET_NAME="${{ env.EXISTING_S3_BUCKET }}"
+            echo "Using existing S3 bucket: $BUCKET_NAME"
+            
+            # Verify existing bucket is accessible
             if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
-              echo "✅ S3 bucket $BUCKET_NAME already exists"
+              echo "✅ Existing bucket $BUCKET_NAME is accessible"
             else
-              echo "❌ Failed to create or access S3 bucket"
+              echo "❌ Cannot access existing bucket $BUCKET_NAME"
+              echo "Please check:"
+              echo "1. Bucket name is correct"
+              echo "2. Role has s3:ListBucket permission"
+              echo "3. Bucket exists in region ${{ inputs.aws_region }}"
               exit 1
             fi
-          }
+          else
+            # Use a more unique bucket name to avoid conflicts
+            BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
+            echo "Using unique bucket name: $BUCKET_NAME"
+            
+            # Check AWS permissions first
+            echo "Checking AWS permissions..."
+            aws sts get-caller-identity || {
+              echo "❌ Cannot get caller identity - AWS credentials issue"
+              exit 1
+            }
+            
+            # Try to create S3 bucket with better error handling
+            echo "Creating S3 bucket: $BUCKET_NAME"
+            if aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>&1; then
+              echo "✅ S3 bucket created successfully: $BUCKET_NAME"
+            else
+              echo "⚠️  S3 bucket creation failed, checking if it already exists..."
+              if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
+                echo "✅ S3 bucket $BUCKET_NAME already exists"
+              else
+                echo "❌ Failed to create or access S3 bucket"
+                echo "This might be due to:"
+                echo "1. Insufficient S3 permissions (need s3:CreateBucket)"
+                echo "2. Bucket name already exists globally"
+                echo "3. Invalid bucket name format"
+                echo ""
+                echo "Trying alternative bucket name..."
+                
+                # Try alternative bucket name
+                BUCKET_NAME="ec2-user-provisioning-test-$(date +%Y%m%d)"
+                echo "Trying alternative bucket: $BUCKET_NAME"
+                
+                if aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>&1; then
+                  echo "✅ Alternative S3 bucket created: $BUCKET_NAME"
+                else
+                  echo "❌ All bucket creation attempts failed"
+                  echo "Please check AWS permissions or use existing bucket"
+                  echo ""
+                  echo "To use an existing bucket, set the EXISTING_S3_BUCKET environment variable"
+                  exit 1
+                fi
+              fi
+            fi
+          fi
           
           # Enable versioning on S3 bucket
           echo "Enabling versioning on S3 bucket..."
@@ -328,30 +430,58 @@ jobs:
           # Create temporary directory for keys
           mkdir -p /tmp/ssh_keys
           
+          # Check disk space and permissions
+          echo "Checking disk space and permissions..."
+          df -h /tmp
+          ls -la /tmp/ssh_keys
+          
+          # Ensure proper permissions
+          chmod 755 /tmp/ssh_keys
+          
           # Generate SSH keys for each user
           echo "Generating SSH keys for users..."
+          
+          # Check if ssh-keygen is available
+          if ! command -v ssh-keygen >/dev/null 2>&1; then
+            echo "❌ ssh-keygen command not found"
+            echo "Installing openssh-client..."
+            if [ "$EUID" -eq 0 ]; then
+              apt-get update && apt-get install -y openssh-client
+            else
+              sudo apt-get update && sudo apt-get install -y openssh-client
+            fi
+          fi
+          
           for user in alice bob charlie diana eve; do
             echo "Generating keys for user: $user"
             
-            # Generate RSA 4096-bit key pair
-            ssh-keygen -t rsa -b 4096 \
+            # Generate RSA 4096-bit key pair with better error handling
+            if ssh-keygen -t rsa -b 4096 \
               -f /tmp/ssh_keys/${user}_key \
               -N "" \
-              -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)"
-            
-            # Rename files for clarity
-            mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
-            mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
-            
-            # Verify key generation
-            if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
-              echo "✅ Generated keys for $user"
+              -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)" 2>&1; then
               
-              # Show key fingerprint for verification
-              echo "Key fingerprint for $user:"
-              ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
+              # Rename files for clarity
+              mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
+              mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+              
+              # Verify key generation
+              if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+                echo "✅ Generated keys for $user"
+                
+                # Show key fingerprint for verification
+                echo "Key fingerprint for $user:"
+                ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
+              else
+                echo "❌ Failed to generate keys for $user"
+                exit 1
+              fi
             else
-              echo "❌ Failed to generate keys for $user"
+              echo "❌ Failed to generate SSH keys for $user"
+              echo "This might be due to:"
+              echo "1. Insufficient disk space"
+              echo "2. Permission issues in /tmp"
+              echo "3. ssh-keygen command failure"
               exit 1
             fi
           done
@@ -371,16 +501,32 @@ jobs:
             fi
             
             # Upload private key with server-side encryption
-            aws s3 cp /tmp/ssh_keys/${user}_private_key \
+            echo "Uploading private key for $user..."
+            if aws s3 cp /tmp/ssh_keys/${user}_private_key \
               s3://$BUCKET_NAME/keys/${user}_private_key \
               --server-side-encryption AES256 \
-              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}"
+              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
+              echo "✅ Private key uploaded for $user"
+            else
+              echo "❌ Failed to upload private key for $user"
+              echo "This might be due to:"
+              echo "1. Insufficient S3 permissions (need s3:PutObject)"
+              echo "2. S3 bucket access issues"
+              echo "3. Network connectivity problems"
+              exit 1
+            fi
             
             # Upload public key
-            aws s3 cp /tmp/ssh_keys/${user}_public_key \
+            echo "Uploading public key for $user..."
+            if aws s3 cp /tmp/ssh_keys/${user}_public_key \
               s3://$BUCKET_NAME/keys/${user}_public_key \
               --server-side-encryption AES256 \
-              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}"
+              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
+              echo "✅ Public key uploaded for $user"
+            else
+              echo "❌ Failed to upload public key for $user"
+              exit 1
+            fi
             
             # Verify upload
             if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
