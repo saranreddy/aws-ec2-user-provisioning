@@ -451,56 +451,7 @@ jobs:
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
         run: |
-          echo "=== Sending SSH Keys via Email ==="
-          
-          # Install Python dependencies using multiple methods
-          echo "Installing Python dependencies..."
-          PYTHON_DEPS_INSTALLED=false
-          
-          # Method 1: Try python3 -m pip
-          if command -v python3 &> /dev/null; then
-            echo "Python3 found, trying python3 -m pip..."
-            if python3 -m pip install pyyaml; then
-              echo "✅ pyyaml installed successfully via python3 -m pip"
-              PYTHON_DEPS_INSTALLED=true
-            else
-              echo "⚠️  python3 -m pip failed, trying alternative methods..."
-            fi
-          fi
-          
-          # Method 2: Try pip3
-          if [ "$PYTHON_DEPS_INSTALLED" = false ] && command -v pip3 &> /dev/null; then
-            echo "Trying pip3..."
-            if pip3 install pyyaml; then
-              echo "✅ pyyaml installed successfully via pip3"
-              PYTHON_DEPS_INSTALLED=true
-            else
-              echo "⚠️  pip3 failed, trying alternative methods..."
-            fi
-          fi
-          
-          # Method 3: Try apt-get (Docker runner fallback)
-          if [ "$PYTHON_DEPS_INSTALLED" = false ] && command -v apt-get &> /dev/null; then
-            echo "Trying apt-get (Docker runner fallback)..."
-            if apt-get update && apt-get install -y python3-yaml; then
-              echo "✅ pyyaml installed successfully via apt-get"
-              PYTHON_DEPS_INSTALLED=true
-            else
-              echo "⚠️  apt-get failed..."
-            fi
-          fi
-          
-          # Check if any method succeeded
-          if [ "$PYTHON_DEPS_INSTALLED" = false ]; then
-            echo "❌ Failed to install pyyaml using all methods"
-            echo "Available Python commands:"
-            command -v python3 || echo "python3: not found"
-            command -v pip3 || echo "pip3: not found"
-            command -v pip || echo "pip: not found"
-            echo "Available package managers:"
-            command -v apt-get || echo "apt-get: not found"
-            exit 1
-          fi
+          echo "=== Sending SSH Keys via Email (Netcat SMTP) ==="
           
           # Set SMTP configuration for UMB
           SMTP_HOST="mailhost.umb.com"
@@ -513,49 +464,139 @@ jobs:
           echo "- Test Email: $TEST_EMAIL"
           echo ""
           
-          # Create a temporary users.yaml for testing (all users get keys sent to test email)
-          echo "Creating test user configuration..."
-          cat > /tmp/test_users.yaml << 'EOF'
-          users:
-            - username: rai002
-              email: saran.alla@umb.com
-              full_name: "Raghavee A"
-            - username: hhe004
-              email: saran.alla@umb.com
-              full_name: "Hasha Venkararaman"
-            - username: sra009
-              email: saran.alla@umb.com
-              full_name: "Sakkaravarthi Ramasubbu"
-            - username: dje008
-              email: saran.alla@umb.com
-              full_name: "Deborah Jerusha"
-            - username: txs030
-              email: saran.alla@umb.com
-              full_name: "TJ"
-            - username: mxe026
-              email: saran.alla@umb.com
-              full_name: "Michael Edmondson"
-          EOF
+          # Check if netcat is available
+          if ! command -v nc &> /dev/null; then
+            echo "❌ netcat (nc) not found. Trying to install..."
+            if command -v apt-get &> /dev/null; then
+              apt-get update && apt-get install -y netcat-openbsd
+            elif command -v yum &> /dev/null; then
+              yum install -y nc
+            else
+              echo "❌ Cannot install netcat. Email functionality unavailable."
+              exit 1
+            fi
+          fi
           
-          echo "✅ Test user configuration created"
-          echo "Contents of test_users.yaml:"
-          cat /tmp/test_users.yaml
+          echo "✅ netcat available: $(which nc)"
           echo ""
           
-          # Run the email script to send all keys to test email
-          echo "Running email script..."
-          python3 scripts/send_keys.py \
-            --smtp-host "$SMTP_HOST" \
-            --smtp-port "$SMTP_PORT" \
-            --users-file "/tmp/test_users.yaml" \
-            --keys-dir "/tmp/ssh_keys" \
-            --test-email "$TEST_EMAIL" \
-            --dry-run false
+          # Read usernames from users.yaml dynamically
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
           
-          if [ $? -eq 0 ]; then
+          echo "📋 Users to process: $USERS"
+          echo ""
+          
+          # Function to send email via netcat SMTP
+          send_email_via_netcat() {
+            local username="$1"
+            local full_name="$2"
+            local key_file="$3"
+            
+            echo "📧 Sending email for user: $username"
+            
+            # Create email content
+            local email_content="From: EC2-Provisioning <noreply@mailhost.umb.com>"
+            email_content="$email_content"$'\n'"To: $TEST_EMAIL"
+            email_content="$email_content"$'\n'"Subject: SSH Key for EC2 Access - $username"
+            email_content="$email_content"$'\n'"Content-Type: text/plain; charset=UTF-8"
+            email_content="$email_content"$'\n'"MIME-Version: 1.0"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"SSH Key for EC2 Access - $username"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"Username: $username"
+            email_content="$email_content"$'\n'"Full Name: $full_name"
+            email_content="$email_content"$'\n'"Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"Your SSH private key has been generated and is provided below."
+            email_content="$email_content"$'\n'"Use this key to access your EC2 instance."
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"SECURITY IMPORTANT:"
+            email_content="$email_content"$'\n'"- Keep this private key secure and never share it"
+            email_content="$email_content"$'\n'"- Store it in ~/.ssh/ directory"
+            email_content="$email_content"$'\n'"- Set proper permissions: chmod 600 your_key_file"
+            email_content="$email_content"$'\n'"- Never commit private keys to version control"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"Your SSH Private Key:"
+            email_content="$email_content"$'\n'"----------------------------------------"
+            email_content="$email_content"$'\n'"$(cat "$key_file")"
+            email_content="$email_content"$'\n'"----------------------------------------"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"How to Use:"
+            email_content="$email_content"$'\n'"1. Save the private key above to a file (e.g., ~/.ssh/${username}_key)"
+            email_content="$email_content"$'\n'"2. Set proper permissions: chmod 600 ~/.ssh/${username}_key"
+            email_content="$email_content"$'\n'"3. Connect to EC2: ssh -i ~/.ssh/${username}_key $username@EC2_IP_ADDRESS"
+            email_content="$email_content"$'\n'$'\n'
+            email_content="$email_content"$'\n'"This is an automated message from the AWS EC2 User Provisioning System."
+            email_content="$email_content"$'\n'"If you have any questions, please contact your system administrator."
+            email_content="$email_content"$'\n'$'\n'
+            
+            # Send email via netcat SMTP
+            local smtp_response=$(echo -e "EHLO github-actions\nMAIL FROM: <noreply@mailhost.umb.com>\nRCPT TO: <$TEST_EMAIL>\nDATA\n$email_content\n.\nQUIT" | nc -w 30 "$SMTP_HOST" "$SMTP_PORT" 2>/dev/null)
+            
+            # Check response
+            if echo "$smtp_response" | grep -q "250"; then
+              echo "✅ Email sent successfully for $username"
+              return 0
+            else
+              echo "❌ Failed to send email for $username"
+              echo "SMTP Response: $smtp_response"
+              return 1
+            fi
+          }
+          
+          # Process each user
+          success_count=0
+          total_count=0
+          
+          for user in $USERS; do
+            total_count=$((total_count + 1))
+            echo "🧪 Processing user: $user"
+            
+            # Get user info from users.yaml
+            user_info=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              for user in data['users']:
+                  if user['username'] == '$user':
+                      print(f\"{user['full_name']}\")
+                      break
+          ")
+            
+            # Check if key file exists
+            key_file="/tmp/ssh_keys/${user}_private_key"
+            if [ -f "$key_file" ]; then
+              echo "✅ Key file found for $user"
+              
+              # Send email
+              if send_email_via_netcat "$user" "$user_info" "$key_file"; then
+                success_count=$((success_count + 1))
+              fi
+            else
+              echo "⚠️  No key file found for $user"
+            fi
+            
+            echo ""
+          done
+          
+          # Summary
+          echo "=== Email Delivery Summary ==="
+          echo "Total users processed: $total_count"
+          echo "Emails sent successfully: $success_count"
+          echo "Emails failed: $((total_count - success_count))"
+          echo ""
+          
+          if [ $success_count -gt 0 ]; then
             echo "✅ SSH keys sent successfully to $TEST_EMAIL"
+            echo "📧 Check your email for SSH key delivery"
           else
-            echo "❌ Failed to send SSH keys via email"
+            echo "❌ No emails were sent successfully"
             exit 1
           fi
           
@@ -563,8 +604,8 @@ jobs:
           echo "📧 Email Summary:"
           echo "- All SSH private keys sent to: $TEST_EMAIL"
           echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
-          echo "- Users: rai002, hhe004, sra009, dje008, txs030, mxe026"
-          echo "- Keys sent: 6 private keys + 6 public keys"
+          echo "- Users: $USERS"
+          echo "- Keys sent: $success_count private keys with instructions"
           
       - name: Cleanup
         run: |
