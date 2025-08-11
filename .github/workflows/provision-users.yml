@@ -760,8 +760,39 @@ jobs:
           fi
           
           # Clean up temporary files
-          rm -rf /tmp/ssh_keys /tmp/key_metadata.json /tmp/terraform_keys
+          rm -rf /tmp/ssh_keys /tmp/key_metadata.json
           echo "✅ Temporary files cleaned up"
+          
+          # Update terraform.tfvars with SSH keys for Terraform
+          echo "=== Updating Terraform Variables with SSH Keys ==="
+          cd terraform
+          
+          # Add SSH public keys to terraform.tfvars
+          echo "" >> terraform.tfvars
+          echo "# SSH Public Keys for User Provisioning" >> terraform.tfvars
+          echo "user_public_keys = {" >> terraform.tfvars
+          
+          for user in alice bob charlie diana eve; do
+            if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
+              # Read the key content and escape it for Terraform
+              KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
+              echo "  \"${user}\" = \"${KEY_CONTENT}\"" >> terraform.tfvars
+              echo "✅ Added SSH key for $user to terraform.tfvars"
+            else
+              echo "  # ${user}: SSH key not available" >> terraform.tfvars
+              echo "⚠️  SSH key for $user not available for Terraform"
+            fi
+          done
+          
+          echo "}" >> terraform.tfvars
+          
+          echo ""
+          echo "Updated terraform.tfvars contents:"
+          cat terraform.tfvars
+          
+          # Clean up terraform keys directory
+          rm -rf /tmp/terraform_keys
+          echo "✅ Terraform keys directory cleaned up"
           
       - name: Debug AWS Environment
         run: |
@@ -1085,7 +1116,7 @@ jobs:
           cd terraform
           echo "=== Creating Terraform Variables File ==="
           
-          # Create terraform.tfvars with instance IDs
+          # Create terraform.tfvars with instance IDs (SSH keys will be added later)
           echo "instance_ids = [\"${{ github.event.inputs.instance_ids }}\"]" > terraform.tfvars
           echo "aws_region = \"${{ inputs.aws_region }}\"" >> terraform.tfvars
           echo "dry_run = ${{ github.event.inputs.dry_run }}" >> terraform.tfvars
@@ -1094,6 +1125,43 @@ jobs:
           echo "✅ terraform.tfvars created"
           echo "File contents:"
           cat terraform.tfvars
+          
+      - name: Verify SSH Keys in Terraform Variables
+        run: |
+          cd terraform
+          echo "=== Verifying SSH Keys in Terraform Variables ==="
+          
+          if [ -f "terraform.tfvars" ]; then
+            echo "✅ terraform.tfvars file exists"
+            
+            # Check if SSH keys are included
+            if grep -q "user_public_keys" terraform.tfvars; then
+              echo "✅ SSH keys section found in terraform.tfvars"
+              
+              # Count how many keys are available
+              KEY_COUNT=$(grep -c '"[a-z]*" = "' terraform.tfvars || echo "0")
+              echo "📊 SSH keys available: $KEY_COUNT"
+              
+              if [ "$KEY_COUNT" -gt 0 ]; then
+                echo "✅ SSH keys are ready for Terraform"
+              else
+                echo "⚠️  No SSH keys found in terraform.tfvars"
+                echo "This will cause Terraform to fail when provisioning users"
+              fi
+            else
+              echo "❌ SSH keys section missing from terraform.tfvars"
+              echo "This will cause Terraform to fail when provisioning users"
+            fi
+            
+            echo ""
+            echo "terraform.tfvars contents:"
+            cat terraform.tfvars
+          else
+            echo "❌ terraform.tfvars file not found"
+            exit 1
+          fi
+          
+          echo "=== End SSH Key Verification ==="
           
       - name: Terraform Plan
         id: plan
