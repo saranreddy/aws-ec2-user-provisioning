@@ -59,111 +59,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Validate Prerequisites
-        run: |
-          echo "=== Validating Prerequisites ==="
-          
-          # Check if required secrets are set
-          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
-            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
-            echo "Please add this secret to your repository settings"
-            exit 1
-          fi
-          
-          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
-            echo "❌ Required secret 'EC2_SSH_PRIVATE_KEY' is not set"
-            echo "Please add this secret to your repository settings"
-            echo "This should contain the private key content for connecting to EC2 instances"
-            exit 1
-          fi
-          
-          # Check if required files exist
-          if [ ! -f "users.yaml" ]; then
-            echo "❌ users.yaml file not found"
-            exit 1
-          fi
-          
-          if [ ! -d "terraform" ]; then
-            echo "❌ terraform directory not found"
-            exit 1
-          fi
-          
-          echo "✅ All prerequisites validated"
-          
-      - name: Validate Terraform Configuration
-        run: |
-          echo "=== Validating Terraform Configuration ==="
-          
-          # Check Terraform files
-          cd terraform
-          echo "Terraform files present:"
-          ls -la *.tf
-          
-          # Check for required Terraform files
-          if [ ! -f "main.tf" ]; then
-            echo "❌ main.tf not found"
-            exit 1
-          fi
-          
-          if [ ! -f "variables.tf" ]; then
-            echo "❌ variables.tf not found"
-            exit 1
-          fi
-          
-          # Validate YAML file format
-          cd ..
-          echo "Validating users.yaml format..."
-          if ! python3 -c "
-          import yaml
-          with open('users.yaml', 'r') as f:
-              data = yaml.safe_load(f)
-              if 'users' not in data:
-                  raise ValueError('users.yaml must contain a users section')
-              for i, user in enumerate(data['users']):
-                  if not all(k in user for k in ['username', 'email', 'full_name']):
-                      raise ValueError(f'User {i+1} missing required fields: {user}')
-                  print(f'✅ User {i+1}: {user[\"username\"]} ({user[\"email\"]})')
-              print(f'✅ Total users: {len(data[\"users\"])}')
-          "; then
-            echo "❌ users.yaml validation failed"
-            exit 1
-          fi
-          
-          echo "✅ Terraform configuration validated"
-          
-      - name: Validate SSH Key Format
-        run: |
-          echo "=== Validating SSH Key Format ==="
-          
-          # Check if SSH key looks like a valid private key
-          SSH_KEY_CONTENT="${{ secrets.EC2_SSH_PRIVATE_KEY }}"
-          
-          if [[ ! "$SSH_KEY_CONTENT" == *"-----BEGIN"* ]]; then
-            echo "❌ SSH key does not contain BEGIN marker"
-            echo "Please ensure the EC2_SSH_PRIVATE_KEY secret contains a valid SSH private key"
-            exit 1
-          fi
-          
-          if [[ ! "$SSH_KEY_CONTENT" == *"-----END"* ]]; then
-            echo "❌ SSH key does not contain END marker"
-            echo "Please ensure the EC2_SSH_PRIVATE_KEY secret contains a valid SSH private key"
-            exit 1
-          fi
-          
-          if [[ ! "$SSH_KEY_CONTENT" == *"PRIVATE KEY"* ]]; then
-            echo "❌ SSH key does not contain PRIVATE KEY marker"
-            echo "Please ensure the EC2_SSH_PRIVATE_KEY secret contains a valid SSH private key"
-            exit 1
-          fi
-          
-          echo "✅ SSH key format appears valid"
-          
-      - name: Install dependencies
-        run: |
-          # Install required packages
-          sudo apt-get update
-          sudo apt-get install -y openssh-client curl unzip python3 python3-pip jq awscli
-          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -171,6 +66,11 @@ jobs:
           
       - name: Set Role Name
         run: |
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            exit 1
+          fi
+          
           echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
           echo "Using role ARN: ${{ env.AuthRole }}"
           
@@ -191,6 +91,11 @@ jobs:
         run: |
           echo "=== Setting up SSH Key for EC2 Access ==="
           
+          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ Required secret 'EC2_SSH_PRIVATE_KEY' is not set"
+            exit 1
+          fi
+          
           # Create .ssh directory and key file
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -198,7 +103,6 @@ jobs:
           chmod 600 ~/.ssh/ec2-provisioning-key
           
           echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
-          echo "File size: $(stat -c%s ~/.ssh/ec2-provisioning-key) bytes"
           
       - name: Generate SSH Keys
         run: |
@@ -270,13 +174,6 @@ jobs:
           echo "=== Terraform Initialization ==="
           terraform init
           echo "✅ Terraform initialized"
-          
-      - name: Terraform Validate
-        run: |
-          cd terraform
-          echo "=== Terraform Validation ==="
-          terraform validate
-          echo "✅ Terraform configuration is valid"
           
       - name: Terraform Plan
         run: |
