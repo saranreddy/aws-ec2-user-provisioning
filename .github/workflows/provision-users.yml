@@ -756,8 +756,8 @@ jobs:
           ")
             
             # Get instance details from environment variables
-            local instance_id="${{ env.EC2_INSTANCE_ID }}"
-            local instance_ip="${{ env.EC2_INSTANCE_IP }}"
+            instance_id="${{ env.EC2_INSTANCE_ID }}"
+            instance_ip="${{ env.EC2_INSTANCE_IP }}"
             
             # Check if key file exists
             key_file="/tmp/ssh_keys/${user}_private_key"
