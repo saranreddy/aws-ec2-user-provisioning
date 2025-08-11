@@ -1,22 +1,26 @@
 # User configuration for AWS EC2 provisioning
 # Each user will get a unique username and SSH key pair
 users:
-  - username: alice
-    email: alice@example.com
-    full_name: "Alice Johnson"
+  - username: rai002
+    email: raghavee.ai@umb.com
+    full_name: "Raghavee A"
     
-  - username: bob
-    email: bob@example.com
-    full_name: "Bob Smith"
+  - username: hhe004
+    email: harsha-venkatraman.hegde@umb.com
+    full_name: "Hasha Venkararaman"
     
-  - username: charlie
-    email: charlie@example.com
-    full_name: "Charlie Brown"
+  - username: sra009
+    email: sakkaravarthi.ramasubbu@umb.com
+    full_name: "Sakkaravarthi Ramasubbu"
     
-  - username: diana
-    email: diana@example.com
-    full_name: "Diana Prince"
+  - username: dje008
+    email: deborah.jerusha@umb.com
+    full_name: "Deborah Jerusha"
     
-  - username: eve
-    email: eve@example.com
-    full_name: "Eve Wilson" 
+  - username: txs030
+    email: Tripatjeet.Singh@umb.com
+    full_name: "TJ"
+    
+  - username: mxe026
+    email: Michael.Edmondson@umb.com
+    full_name: "Michael Edmondson" 
