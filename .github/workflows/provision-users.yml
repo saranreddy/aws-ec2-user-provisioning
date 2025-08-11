@@ -894,6 +894,25 @@ jobs:
           echo "Current terraform.tfvars content:"
           if [ -f "terraform.tfvars" ]; then
             cat terraform.tfvars
+            
+            # Verify SSH keys are present
+            echo ""
+            echo "=== SSH Keys Verification ==="
+            if grep -q "user_public_keys" terraform.tfvars; then
+              echo "✅ user_public_keys section found"
+              KEY_COUNT=$(grep -c '"[a-z]*" = "' terraform.tfvars || echo "0")
+              echo "📊 SSH keys found: $KEY_COUNT"
+              
+              if [ "$KEY_COUNT" -gt 0 ]; then
+                echo "✅ SSH keys are ready for Terraform"
+              else
+                echo "⚠️  No SSH keys found in terraform.tfvars"
+                echo "This will cause Terraform to fail!"
+              fi
+            else
+              echo "❌ user_public_keys section missing from terraform.tfvars"
+              echo "This will cause Terraform to fail!"
+            fi
           else
             echo "❌ terraform.tfvars file not found"
             exit 1
@@ -908,6 +927,7 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             echo "Running in dry-run mode - no actual changes will be made"
             terraform plan \
+              -var-file="terraform.tfvars" \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=true" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
@@ -923,6 +943,7 @@ jobs:
             }
           else
             terraform plan \
+              -var-file="terraform.tfvars" \
               -var="aws_region=${{ inputs.aws_region }}" \
               -var="dry_run=false" \
               -var="ssh_keys_bucket_name=${{ env.ssh_keys_bucket_name }}" \
