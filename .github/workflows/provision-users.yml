@@ -58,7 +58,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -118,20 +118,32 @@ jobs:
             --query 'Reservations[0].Instances[0]' \
             --output json)
           
-          # Extract public IP
+          # Try to get public IP first, fall back to private IP if public is not available
           PUBLIC_IP=$(echo $INSTANCE_INFO | jq -r '.PublicIpAddress')
-          if [ "$PUBLIC_IP" = "null" ] || [ -z "$PUBLIC_IP" ]; then
-            echo "❌ Could not get public IP for instance $INSTANCE_ID"
+          PRIVATE_IP=$(echo $INSTANCE_INFO | jq -r '.PrivateIpAddress')
+          
+          if [ "$PUBLIC_IP" != "null" ] && [ -n "$PUBLIC_IP" ]; then
+            echo "✅ Using public IP for instance $INSTANCE_ID"
+            INSTANCE_IP="$PUBLIC_IP"
+            IP_TYPE="public"
+          elif [ "$PRIVATE_IP" != "null" ] && [ -n "$PRIVATE_IP" ]; then
+            echo "✅ Using private IP for instance $INSTANCE_ID (public IP not available)"
+            INSTANCE_IP="$PRIVATE_IP"
+            IP_TYPE="private"
+          else
+            echo "❌ Could not get IP address for instance $INSTANCE_ID"
+            echo "Instance info: $INSTANCE_INFO"
             exit 1
           fi
           
           echo "Instance ID: $INSTANCE_ID"
-          echo "Public IP: $PUBLIC_IP"
+          echo "IP Address: $INSTANCE_IP ($IP_TYPE)"
           echo "Region: $REGION"
           
           # Store for later use
-          echo "EC2_PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+          echo "EC2_INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
           echo "EC2_INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "EC2_IP_TYPE=$IP_TYPE" >> $GITHUB_ENV
           
           echo "✅ EC2 instance details retrieved"
           
@@ -147,18 +159,18 @@ jobs:
           for user in alice bob charlie diana eve; do
             echo "Generating keys for user: $user"
             
-            if ssh-keygen -t rsa -b 4096 \
-              -f /tmp/ssh_keys/${user}_key \
-              -N "" \
+              if ssh-keygen -t rsa -b 4096 \
+                -f /tmp/ssh_keys/${user}_key \
+                -N "" \
               -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)"; then
-              
-              # Rename files for clarity
-              mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
-              mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+                
+                # Rename files for clarity
+                mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
+                mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
               echo "✅ Generated keys for $user"
-            else
-              echo "❌ Failed to generate keys for $user"
-              exit 1
+                else
+                  echo "❌ Failed to generate keys for $user"
+                  exit 1
             fi
           done
           
@@ -186,10 +198,10 @@ jobs:
         run: |
           echo "=== Installing SSH Keys on EC2 Instance ==="
           
-          EC2_IP="${{ env.EC2_PUBLIC_IP }}"
+          EC2_IP="${{ env.EC2_INSTANCE_IP }}"
           SSH_USER="ec2-user"
           
-          echo "Connecting to EC2 instance at $EC2_IP..."
+          echo "Connecting to EC2 instance at $EC2_IP (${{ env.EC2_IP_TYPE }} IP)..."
           
           # Test SSH connection first
           if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
@@ -233,8 +245,8 @@ jobs:
               echo "✅ Key installed for $user on EC2"
             else
               echo "❌ SSH key for $user not found"
-              exit 1
-            fi
+            exit 1
+          fi
           done
           
           echo "✅ All SSH keys installed on EC2 instance"
@@ -244,7 +256,7 @@ jobs:
         run: |
           echo "=== Verifying User Access ==="
           
-          EC2_IP="${{ env.EC2_PUBLIC_IP }}"
+          EC2_IP="${{ env.EC2_INSTANCE_IP }}"
           
           # Test each user's SSH access
           for user in alice bob charlie diana eve; do
@@ -342,14 +354,14 @@ jobs:
           echo ""
           echo "📋 Summary:"
           echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
-          echo "- Public IP: ${{ env.EC2_PUBLIC_IP }}"
+          echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
           echo "- Users Created: alice, bob, charlie, diana, eve"
           echo "- SSH Keys: Available in S3 bucket"
           echo "- Access Verified: All users can SSH to EC2"
           echo ""
           echo "🔑 Next Steps:"
           echo "1. Users download their private keys from S3"
-          echo "2. Users connect: ssh -i user_key user@${{ env.EC2_PUBLIC_IP }}"
+          echo "2. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
           echo "3. All users have full access to their home directories"
 
  
