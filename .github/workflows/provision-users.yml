@@ -509,7 +509,10 @@ jobs:
             fi
             
             # Create email content with instance details and proper key embedding
+            # Use simple echo statements for reliable content creation
             local email_content=""
+            
+            # Build email content line by line
             email_content="${email_content}From: EC2-Provisioning <noreply@mailhost.umb.com>"
             email_content="${email_content}"$'\n'"To: $TEST_EMAIL"
             email_content="${email_content}"$'\n'"Subject: SSH Key for EC2 Access - $username"
