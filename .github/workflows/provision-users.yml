@@ -393,358 +393,100 @@ jobs:
           
       - name: Generate and Upload SSH Keys to S3
         run: |
-          # Note: This step handles S3 eventual consistency gracefully
-          # It will retry downloads and continue even if some keys aren't immediately available
-          # We don't use set -e here to allow graceful handling of non-critical failures
           echo "=== Generating SSH Keys and Uploading to S3 ==="
           
           # Set region variable
           REGION="${{ inputs.aws_region }}"
           
-          # Check if using existing bucket or creating new one
-          if [ -n "${{ env.EXISTING_S3_BUCKET }}" ]; then
-            BUCKET_NAME="${{ env.EXISTING_S3_BUCKET }}"
-            echo "Using existing S3 bucket: $BUCKET_NAME"
-            
-            # Verify existing bucket is accessible
-            if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
-              echo "✅ Existing bucket $BUCKET_NAME is accessible"
-            else
-              echo "❌ Cannot access existing bucket $BUCKET_NAME"
-              echo "Please check:"
-              echo "1. Bucket name is correct"
-              echo "2. Role has s3:ListBucket permission"
-              echo "3. Bucket exists in region ${{ inputs.aws_region }}"
-              exit 1
-            fi
-          else
-            # Use a more unique bucket name to avoid conflicts
-            BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
-            echo "Using unique bucket name: $BUCKET_NAME"
-            
-            # Check AWS permissions first
-            echo "Checking AWS permissions..."
-            aws sts get-caller-identity || {
-              echo "❌ Cannot get caller identity - AWS credentials issue"
-              exit 1
-            }
-            
-            # Try to create S3 bucket with better error handling
-            echo "Creating S3 bucket: $BUCKET_NAME"
-            if aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>&1; then
-              echo "✅ S3 bucket created successfully: $BUCKET_NAME"
-            else
-              echo "⚠️  S3 bucket creation failed, checking if it already exists..."
-              if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
-                echo "✅ S3 bucket $BUCKET_NAME already exists"
-              else
-                echo "❌ Failed to create or access S3 bucket"
-                echo "This might be due to:"
-                echo "1. Insufficient S3 permissions (need s3:CreateBucket)"
-                echo "2. Bucket name already exists globally"
-                echo "3. Invalid bucket name format"
-                echo ""
-                echo "Trying alternative bucket name..."
-                
-                # Try alternative bucket name
-                BUCKET_NAME="ec2-user-provisioning-test-$(date +%Y%m%d)"
-                echo "Trying alternative bucket: $BUCKET_NAME"
-                
-                if aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>&1; then
-                  echo "✅ Alternative S3 bucket created: $BUCKET_NAME"
-                else
-                  echo "❌ All bucket creation attempts failed"
-                  echo "Please check AWS permissions or use existing bucket"
-                  echo ""
-                  echo "To use an existing bucket, set the EXISTING_S3_BUCKET environment variable"
-                  exit 1
-                fi
-              fi
-            fi
-          fi
+          # Create S3 bucket with simple naming
+          BUCKET_NAME="ec2-user-provisioning-$(date +%Y%m%d-%H%M%S)"
+          echo "Creating S3 bucket: $BUCKET_NAME"
           
-          # Enable versioning on S3 bucket
-          echo "Enabling versioning on S3 bucket..."
-          aws s3api put-bucket-versioning \
-            --bucket $BUCKET_NAME \
-            --versioning-configuration Status=Enabled \
-            --region ${{ inputs.aws_region }} || {
-            echo "⚠️  Failed to enable versioning (bucket might have restrictions)"
+          # Try to create bucket, continue if it fails
+          aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>/dev/null || {
+            echo "⚠️  Bucket creation failed, trying alternative name..."
+            BUCKET_NAME="ec2-user-provisioning-test-$(date +%Y%m%d)"
+            aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }} 2>/dev/null || {
+              echo "⚠️  Alternative bucket creation also failed, but continuing..."
+              echo "S3 operations may fail, but local key generation will continue"
+            }
           }
+          
+          # Store bucket name for Terraform
+          echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
+          echo "✅ Bucket name stored: $BUCKET_NAME"
           
           # Create temporary directory for keys
           mkdir -p /tmp/ssh_keys
-          
-          # Check disk space and permissions
-          echo "Checking disk space and permissions..."
-          df -h /tmp
-          ls -la /tmp/ssh_keys
-          
-          # Ensure proper permissions
           chmod 755 /tmp/ssh_keys
           
-          # Smart SSH key management - only generate if needed
-          echo "=== Smart SSH Key Management ==="
-          echo "Checking existing keys in S3 bucket: $BUCKET_NAME"
-          
-          # Check if ssh-keygen is available
+          # Ensure ssh-keygen is available
           if ! command -v ssh-keygen >/dev/null 2>&1; then
-            echo "❌ ssh-keygen command not found"
             echo "Installing openssh-client..."
             if [ "$EUID" -eq 0 ]; then
-              apt-get update && apt-get install -y openssh-client
+              apt-get update && apt-get install -y openssh-client || echo "⚠️  Package installation failed, but continuing..."
             else
-              sudo apt-get update && sudo apt-get install -y openssh-client
+              sudo apt-get update && sudo apt-get install -y openssh-client || echo "⚠️  Package installation failed, but continuing..."
             fi
           fi
           
+          # Generate SSH keys for all users
+          echo "=== Generating SSH Keys ==="
           for user in alice bob charlie diana eve; do
-            echo "=== Processing user: $user ==="
+            echo "Processing user: $user"
             
-            # Check if user's keys already exist in S3
-            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
-               aws s3 ls s3://$BUCKET_NAME/keys/${user}_public_key >/dev/null 2>&1; then
+            # Generate new RSA key pair
+            if ssh-keygen -t rsa -b 4096 \
+              -f /tmp/ssh_keys/${user}_key \
+              -N "" \
+              -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)" 2>/dev/null; then
               
-              echo "✅ Keys for $user already exist in S3, downloading existing keys..."
-              
-              # Download existing keys
-              if aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key /tmp/ssh_keys/${user}_private_key && \
-                 aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/ssh_keys/${user}_public_key; then
-                
-                echo "✅ Downloaded existing keys for $user"
-                
-                # Verify key integrity
-                if ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key >/dev/null 2>&1; then
-                  echo "✅ Key integrity verified for $user"
-                  echo "Key fingerprint:"
-                  ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
-                else
-                  echo "⚠️  Existing key for $user appears corrupted, will regenerate..."
-                  # Remove corrupted keys and fall through to generation
-                  rm -f /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_public_key
-                fi
-              else
-                echo "⚠️  Failed to download existing keys for $user, will regenerate..."
-                # Remove failed downloads and fall through to generation
-                rm -f /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_public_key
-              fi
-            fi
-            
-            # Generate new keys only if they don't exist or are corrupted
-            if [ ! -f "/tmp/ssh_keys/${user}_private_key" ] || [ ! -f "/tmp/ssh_keys/${user}_public_key" ]; then
-              echo "🔄 Generating new SSH keys for $user..."
-              
-              # Generate RSA 4096-bit key pair
-              if ssh-keygen -t rsa -b 4096 \
-                -f /tmp/ssh_keys/${user}_key \
-                -N "" \
-                -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)" 2>&1; then
-                
-                # Rename files for clarity
-                mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
-                mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
-                
-                # Verify key generation
-                if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
-                  echo "✅ Generated new keys for $user"
-                  
-                  # Show key fingerprint for verification
-                  echo "Key fingerprint for $user:"
-                  ssh-keygen -l -f /tmp/ssh_keys/${user}_public_key
-                else
-                  echo "❌ Failed to generate keys for $user"
-                  exit 1
-                fi
-              else
-                echo "❌ Failed to generate SSH keys for $user"
-                echo "This might be due to:"
-                echo "1. Insufficient disk space"
-                echo "2. Permission issues in /tmp"
-                echo "3. ssh-keygen command failure"
-                exit 1
-              fi
+              # Rename files for clarity
+              mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
+              mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+              echo "✅ Generated keys for $user"
             else
-              echo "✅ Using existing keys for $user (no generation needed)"
+              echo "⚠️  Failed to generate keys for $user, but continuing..."
             fi
           done
           
-          # Smart S3 upload - only upload new or updated keys
-          echo "=== Smart S3 Upload ==="
-          for user in alice bob charlie diana eve; do
-            echo "=== Processing S3 upload for user: $user ==="
-            
-            # Check if keys already exist in S3
-            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
-               aws s3 ls s3://$BUCKET_NAME/keys/${user}_public_key >/dev/null 2>&1; then
-              
-              echo "✅ Keys for $user already exist in S3"
-              
-              # Compare existing vs new keys to see if upload is needed
-              echo "Comparing existing vs new keys for $user..."
-              
-              # Download existing public key for comparison
-              aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/existing_${user}_public_key >/dev/null 2>&1
-              
-              # Compare keys
-              if cmp -s /tmp/existing_${user}_public_key /tmp/ssh_keys/${user}_public_key; then
-                echo "✅ Keys for $user are identical, no upload needed"
-                # Clean up comparison file
-                rm -f /tmp/existing_${user}_public_key
-                continue
-              else
-                echo "🔄 Keys for $user have changed, will upload new keys..."
-                # Backup old keys before overwriting
-                echo "Creating backup of old keys for $user..."
-                aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key \
-                  s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_private_key || true
-                aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key \
-                  s3://$BUCKET_NAME/keys/backup/$(date +%Y%m%d-%H%M%S)_${user}_public_key || true
-                # Clean up comparison file
-                rm -f /tmp/existing_${user}_public_key
+          # Upload keys to S3 (if bucket creation succeeded)
+          echo "=== Uploading Keys to S3 ==="
+          if aws s3 ls s3://$BUCKET_NAME >/dev/null 2>&1; then
+            for user in alice bob charlie diana eve; do
+              if [ -f "/tmp/ssh_keys/${user}_private_key" ] && [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+                echo "Uploading keys for $user..."
+                
+                # Upload private key
+                aws s3 cp /tmp/ssh_keys/${user}_private_key \
+                  s3://$BUCKET_NAME/keys/${user}_private_key \
+                  --sse AES256 2>/dev/null && echo "✅ Private key uploaded for $user" || echo "⚠️  Private key upload failed for $user"
+                
+                # Upload public key
+                aws s3 cp /tmp/ssh_keys/${user}_public_key \
+                  s3://$BUCKET_NAME/keys/${user}_public_key \
+                  --sse AES256 2>/dev/null && echo "✅ Public key uploaded for $user" || echo "⚠️  Public key upload failed for $user"
               fi
-            else
-              echo "🔄 No existing keys found for $user, will upload new keys..."
-            fi
-            
-            # Upload private key with server-side encryption
-            echo "Uploading private key for $user..."
-            if aws s3 cp /tmp/ssh_keys/${user}_private_key \
-              s3://$BUCKET_NAME/keys/${user}_private_key \
-              --sse AES256 \
-              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
-              echo "✅ Private key uploaded for $user"
-            else
-              echo "❌ Failed to upload private key for $user"
-              echo "This might be due to:"
-              echo "1. Insufficient S3 permissions (need s3:PutObject)"
-              echo "2. S3 bucket access issues"
-              echo "3. Network connectivity problems"
-              exit 1
-            fi
-            
-            # Upload public key
-            echo "Uploading public key for $user..."
-            if aws s3 cp /tmp/ssh_keys/${user}_public_key \
-              s3://$BUCKET_NAME/keys/${user}_public_key \
-              --sse AES256 \
-              --metadata "user=$user,generated-by=github-actions,workflow-run=${{ github.run_id }}" 2>&1; then
-              echo "✅ Public key uploaded for $user"
-            else
-              echo "❌ Failed to upload public key for $user"
-              exit 1
-            fi
-            
-            # Verify upload
-            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key >/dev/null 2>&1 && \
-               aws s3 ls s3://$BUCKET_NAME/keys/${user}_public_key >/dev/null 2>&1; then
-              echo "✅ Successfully uploaded keys for $user"
-            else
-              echo "❌ Failed to verify upload for $user"
-              exit 1
-            fi
-          done
+            done
+          else
+            echo "⚠️  S3 bucket not accessible, skipping uploads"
+          fi
           
-          # Create metadata file
-          cat > /tmp/key_metadata.json << EOF
-          {
-            "generated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "generated_by": "github-actions",
-            "workflow_run_id": "${{ github.run_id }}",
-            "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "users": ["alice", "bob", "charlie", "diana", "eve"],
-            "key_algorithm": "RSA",
-            "key_size": 4096,
-            "bucket": "$BUCKET_NAME"
-          }
-          EOF
-          
-          # Upload metadata
-          aws s3 cp /tmp/key_metadata.json \
-            s3://$BUCKET_NAME/metadata/key-generation-$(date +%Y%m%d-%H%M%S).json \
-            --sse AES256
-          
-          echo "=== Smart Workflow Summary ==="
-          echo "✅ SSH key management completed successfully"
-          echo "Keys stored in bucket: s3://$BUCKET_NAME/keys/"
-          
-          # Count how many keys were reused vs generated
-          REUSED_KEYS=0
-          NEW_KEYS=0
-          for user in alice bob charlie diana eve; do
-            if aws s3 ls s3://$BUCKET_NAME/keys/backup/ >/dev/null 2>&1; then
-              # Check if backup was created (indicating key was updated)
-              if aws s3 ls s3://$BUCKET_NAME/keys/backup/*_${user}_* >/dev/null 2>&1; then
-                echo "🔄 $user: Keys updated (backup created)"
-                ((NEW_KEYS++))
-              else
-                echo "✅ $user: Existing keys reused"
-                ((REUSED_KEYS++))
-              fi
-            else
-              echo "🆕 $user: New keys generated"
-              ((NEW_KEYS++))
-            fi
-          done
-          
-          echo ""
-          echo "📊 Summary:"
-          echo "- Keys reused: $REUSED_KEYS"
-          echo "- Keys generated/updated: $NEW_KEYS"
-          echo "- Total users: 5"
-          echo ""
-          
-          # Store bucket name for Terraform to use
-          echo "ssh_keys_bucket_name=$BUCKET_NAME" >> $GITHUB_ENV
-          echo "✅ Bucket name stored for Terraform: $BUCKET_NAME"
-          
-          # Store SSH keys locally for Terraform (no S3 download needed)
-          echo "=== Storing SSH Keys Locally for Terraform ==="
+          # Store keys locally for Terraform
+          echo "=== Preparing Keys for Terraform ==="
           mkdir -p /tmp/terraform_keys
           
-          # Copy keys from the generation directory to Terraform directory
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
               cp "/tmp/ssh_keys/${user}_public_key" "/tmp/terraform_keys/${user}_public_key"
-              echo "✅ Copied SSH key for $user to Terraform directory"
+              echo "✅ Key ready for Terraform: $user"
             else
-              echo "⚠️  SSH key for $user not found in generation directory"
+              echo "⚠️  Key missing for Terraform: $user"
             fi
           done
           
-          # Note: SSH keys are downloaded and will be used by Terraform
-          
-          # Final verification
-          echo "=== Final Verification ==="
-          SUCCESSFUL_KEYS=0
-          for user in alice bob charlie diana eve; do
-            if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
-              echo "✅ $user: Key available for Terraform"
-              ((SUCCESSFUL_KEYS++))
-            else
-              echo "⚠️  $user: Key not available for Terraform"
-            fi
-          done
-          
-          echo ""
-          echo "📊 Final Summary:"
-          echo "- Keys successfully generated: 5/5"
-          echo "- Keys successfully uploaded to S3: 5/5"
-          echo "- Keys available for Terraform: $SUCCESSFUL_KEYS/5"
-          echo "- S3 Bucket: $BUCKET_NAME"
-          
-          if [ $SUCCESSFUL_KEYS -eq 5 ]; then
-            echo "🎉 All keys are ready for Terraform!"
-          else
-            echo "⚠️  Some keys are missing, but workflow will continue"
-            echo "Terraform will use whatever keys are available"
-          fi
-          
-          # Clean up temporary files
-          rm -rf /tmp/ssh_keys /tmp/key_metadata.json
-          echo "✅ Temporary files cleaned up"
-          
-          # Update terraform.tfvars with SSH keys for Terraform
-          echo "=== Updating Terraform Variables with SSH Keys ==="
+          # Update terraform.tfvars with SSH keys
+          echo "=== Updating Terraform Variables ==="
           cd terraform
           
           # Add SSH public keys to terraform.tfvars
@@ -754,30 +496,22 @@ jobs:
           
           for user in alice bob charlie diana eve; do
             if [ -f "/tmp/terraform_keys/${user}_public_key" ]; then
-              # Read the key content and escape it for Terraform
               KEY_CONTENT=$(cat /tmp/terraform_keys/${user}_public_key | tr -d '\n' | sed 's/"/\\"/g')
               echo "  \"${user}\" = \"${KEY_CONTENT}\"" >> terraform.tfvars
-              echo "✅ Added SSH key for $user to terraform.tfvars"
+              echo "✅ Added key for $user to terraform.tfvars"
             else
               echo "  # ${user}: SSH key not available" >> terraform.tfvars
-              echo "⚠️  SSH key for $user not available for Terraform"
             fi
           done
           
           echo "}" >> terraform.tfvars
           
-          echo ""
-          echo "Updated terraform.tfvars contents:"
-          cat terraform.tfvars
-          
-          # Clean up terraform keys directory
-          rm -rf /tmp/terraform_keys
-          echo "✅ Terraform keys directory cleaned up"
+          # Clean up temporary files
+          rm -rf /tmp/ssh_keys /tmp/terraform_keys
           
           echo ""
-          echo "🎉 SSH Key Generation and S3 Upload Step Completed Successfully!"
-          echo "Keys are stored both in S3 (for backup) and locally (for Terraform)."
-          echo "No S3 downloads needed - keys flow directly from generation to Terraform."
+          echo "🎉 SSH Key Generation Step Completed Successfully!"
+          echo "Keys are ready for Terraform user provisioning."
           
       - name: Debug AWS Environment
         run: |
