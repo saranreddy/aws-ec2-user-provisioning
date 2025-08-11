@@ -1329,6 +1329,186 @@ jobs:
           
           echo "=== END PROVISIONING SUMMARY ==="
           
+      - name: Test SSH Key Authentication
+        run: |
+          set -e
+          echo "=== Testing SSH Key Authentication ==="
+          
+          # Get instance information from Terraform
+          cd terraform
+          INSTANCE_INFO=$(terraform output -json provisioned_instances)
+          echo "Instance information: $INSTANCE_INFO"
+          
+          # Extract the first instance ID and IP
+          FIRST_INSTANCE_ID=$(echo "$INSTANCE_INFO" | jq -r 'keys[0]')
+          INSTANCE_IP=$(echo "$INSTANCE_INFO" | jq -r ".[\"$FIRST_INSTANCE_ID\"].public_ip // .[\"$FIRST_INSTANCE_ID\"].private_ip")
+          
+          if [ -z "$INSTANCE_IP" ] || [ "$INSTANCE_IP" = "null" ]; then
+            echo "❌ Could not determine instance IP address"
+            echo "Instance info: $INSTANCE_INFO"
+            exit 1
+          fi
+          
+          echo "Testing SSH connectivity to instance: $FIRST_INSTANCE_ID at $INSTANCE_IP"
+          
+          # Test SSH connectivity for each user
+          for user in alice bob charlie diana eve; do
+            echo "Testing SSH authentication for user: $user"
+            
+            # Download the private key for this user
+            echo "Downloading private key for $user..."
+            if aws s3 cp s3://${{ env.ssh_keys_bucket_name }}/keys/${user}_private_key /tmp/${user}_private_key; then
+              echo "✅ Private key downloaded for $user"
+              
+              # Set proper permissions on private key
+              chmod 600 /tmp/${user}_private_key
+              
+              # Test SSH connection (with timeout to avoid hanging)
+              echo "Testing SSH connection for $user@$INSTANCE_IP..."
+              if timeout 30 ssh -i /tmp/${user}_private_key \
+                   -o StrictHostKeyChecking=no \
+                   -o ConnectTimeout=10 \
+                   -o UserKnownHostsFile=/dev/null \
+                   ${user}@${INSTANCE_IP} \
+                   "echo '✅ SSH authentication successful for $user on $INSTANCE_IP' && whoami && pwd" 2>&1; then
+                echo "✅ SSH authentication test PASSED for $user"
+              else
+                echo "❌ SSH authentication test FAILED for $user"
+                echo "This could indicate:"
+                echo "1. SSH key not properly installed on instance"
+                echo "2. User account not created correctly"
+                echo "3. SSH service not running on instance"
+                echo "4. Security group blocking SSH access"
+                echo "5. Private key format issues"
+              fi
+              
+              # Clean up private key
+              rm -f /tmp/${user}_private_key
+            else
+              echo "❌ Failed to download private key for $user"
+            fi
+            
+            echo "---"
+          done
+          
+          echo "=== SSH Authentication Testing Complete ==="
+          
+      - name: Verify SSH Key Installation on Instance
+        run: |
+          set -e
+          echo "=== Verifying SSH Key Installation on Instance ==="
+          
+          # Get instance information from Terraform
+          cd terraform
+          INSTANCE_INFO=$(terraform output -json provisioned_instances)
+          FIRST_INSTANCE_ID=$(echo "$INSTANCE_INFO" | jq -r 'keys[0]')
+          INSTANCE_IP=$(echo "$INSTANCE_INFO" | jq -r ".[\"$FIRST_INSTANCE_ID\"].public_ip // .[\"$FIRST_INSTANCE_ID\"].private_ip")
+          
+          echo "Verifying SSH key installation on instance: $FIRST_INSTANCE_ID at $INSTANCE_IP"
+          
+          # Use the first user's private key to connect and verify all users
+          FIRST_USER="alice"
+          echo "Using $FIRST_USER's private key to verify all user setups..."
+          
+          # Download the first user's private key
+          if aws s3 cp s3://${{ env.ssh_keys_bucket_name }}/keys/${FIRST_USER}_private_key /tmp/${FIRST_USER}_private_key; then
+            chmod 600 /tmp/${FIRST_USER}_private_key
+            
+            # Connect to instance and verify all user setups
+            echo "Connecting to instance to verify user setups..."
+            ssh -i /tmp/${FIRST_USER}_private_key \
+                -o StrictHostKeyChecking=no \
+                -o ConnectTimeout=10 \
+                -o UserKnownHostsFile=/dev/null \
+                ${FIRST_USER}@${INSTANCE_IP} << 'EOF'
+              
+              echo "=== User Account Verification ==="
+              
+              # Check if all users exist
+              for user in alice bob charlie diana eve; do
+                echo "Checking user: $user"
+                
+                # Check if user exists
+                if id "$user" >/dev/null 2>&1; then
+                  echo "✅ User $user exists"
+                  
+                  # Check if .ssh directory exists
+                  if [ -d "/home/$user/.ssh" ]; then
+                    echo "✅ .ssh directory exists for $user"
+                    
+                    # Check authorized_keys file
+                    if [ -f "/home/$user/.ssh/authorized_keys" ]; then
+                      echo "✅ authorized_keys file exists for $user"
+                      
+                      # Check file permissions
+                      PERMS=$(stat -c "%a" "/home/$user/.ssh/authorized_keys")
+                      if [ "$PERMS" = "600" ]; then
+                        echo "✅ Correct permissions (600) on authorized_keys for $user"
+                      else
+                        echo "❌ Incorrect permissions ($PERMS) on authorized_keys for $user"
+                      fi
+                      
+                      # Check file ownership
+                      OWNER=$(stat -c "%U" "/home/$user/.ssh/authorized_keys")
+                      if [ "$OWNER" = "$user" ]; then
+                        echo "✅ Correct ownership ($OWNER) on authorized_keys for $user"
+                      else
+                        echo "❌ Incorrect ownership ($OWNER) on authorized_keys for $user"
+                      fi
+                      
+                      # Check key content
+                      KEY_CONTENT=$(cat "/home/$user/.ssh/authorized_keys")
+                      if [ -n "$KEY_CONTENT" ] && [[ "$KEY_CONTENT" == *"ssh-rsa"* ]]; then
+                        echo "✅ Valid SSH key content found for $user"
+                      else
+                        echo "❌ Invalid or empty SSH key content for $user"
+                      fi
+                    else
+                      echo "❌ authorized_keys file missing for $user"
+                    fi
+                  else
+                    echo "❌ .ssh directory missing for $user"
+                  fi
+                else
+                  echo "❌ User $user does not exist"
+                fi
+                
+                echo "---"
+              done
+              
+              echo "=== SSH Service Status ==="
+              if systemctl is-active --quiet sshd; then
+                echo "✅ SSH service (sshd) is running"
+              else
+                echo "❌ SSH service (sshd) is not running"
+              fi
+              
+              echo "=== SSH Configuration ==="
+              if [ -f "/etc/ssh/sshd_config" ]; then
+                echo "✅ SSH config file exists"
+                
+                # Check if password authentication is disabled (recommended)
+                if grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config; then
+                  echo "✅ Password authentication is disabled (secure)"
+                else
+                  echo "⚠️  Password authentication may be enabled"
+                fi
+              else
+                echo "❌ SSH config file missing"
+              fi
+              
+            EOF
+            
+            # Clean up private key
+            rm -f /tmp/${FIRST_USER}_private_key
+            echo "✅ SSH key installation verification completed"
+          else
+            echo "❌ Failed to download private key for verification"
+            exit 1
+          fi
+          
+          echo "=== End SSH Key Installation Verification ==="
+          
       - name: Create S3 Bucket and Testing File
         run: |
           echo "=== Creating S3 Bucket and Testing File ==="
