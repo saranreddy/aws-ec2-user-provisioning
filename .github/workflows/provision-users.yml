@@ -494,7 +494,19 @@ jobs:
               return 1
             fi
             
-            # Create email content with proper key embedding
+            # Get instance details from environment variables
+            local instance_id="${{ env.EC2_INSTANCE_ID }}"
+            local instance_ip="${{ env.EC2_INSTANCE_IP }}"
+            local instance_name="EC2 Instance"
+            
+            # Try to get instance name from AWS if available
+            if command -v aws &> /dev/null && [ -n "$instance_id" ]; then
+              echo "🔍 Getting instance details from AWS..."
+              instance_name=$(aws ec2 describe-instances --instance-ids "$instance_id" --query 'Reservations[0].Instances[0].Tags[?Key==`Name`].Value' --output text 2>/dev/null || echo "EC2 Instance")
+              echo "✅ Instance name: $instance_name"
+            fi
+            
+            # Create email content with instance details and proper key embedding
             local email_content=""
             email_content="${email_content}From: EC2-Provisioning <noreply@mailhost.umb.com>"
             email_content="${email_content}"$'\n'"To: $TEST_EMAIL"
@@ -503,10 +515,18 @@ jobs:
             email_content="${email_content}"$'\n'"MIME-Version: 1.0"
             email_content="${email_content}"$'\n'$'\n'
             email_content="${email_content}"$'\n'"SSH Key for EC2 Access - $username"
+            email_content="${email_content}"$'\n'"=========================================="
             email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"Username: $username"
-            email_content="${email_content}"$'\n'"Full Name: $full_name"
-            email_content="${email_content}"$'\n'"Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            email_content="${email_content}"$'\n'"User Information:"
+            email_content="${email_content}"$'\n'"- Username: $username"
+            email_content="${email_content}"$'\n'"- Full Name: $full_name"
+            email_content="${email_content}"$'\n'"- Generated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Instance Details:"
+            email_content="${email_content}"$'\n'"- Instance Name: $instance_name"
+            email_content="${email_content}"$'\n'"- Instance ID: $instance_id"
+            email_content="${email_content}"$'\n'"- Private IP: $instance_ip"
+            email_content="${email_content}"$'\n'"- Connection IP: $instance_ip"
             email_content="${email_content}"$'\n'$'\n'
             email_content="${email_content}"$'\n'"Your SSH private key has been generated and is provided below."
             email_content="${email_content}"$'\n'"Use this key to access your EC2 instance."
@@ -516,19 +536,48 @@ jobs:
             email_content="${email_content}"$'\n'"- Store it in ~/.ssh/ directory"
             email_content="${email_content}"$'\n'"- Set proper permissions: chmod 600 your_key_file"
             email_content="${email_content}"$'\n'"- Never commit private keys to version control"
+            email_content="${email_content}"$'\n'"- This key is unique to your user account"
             email_content="${email_content}"$'\n'$'\n'
             email_content="${email_content}"$'\n'"Your SSH Private Key:"
             email_content="${email_content}"$'\n'"----------------------------------------"
             email_content="${email_content}"$'\n'"$private_key_content"
             email_content="${email_content}"$'\n'"----------------------------------------"
             email_content="${email_content}"$'\n'$'\n'
-            email_content="${email_content}"$'\n'"How to Use:"
-            email_content="${email_content}"$'\n'"1. Save the private key above to a file (e.g., ~/.ssh/${username}_key)"
-            email_content="${email_content}"$'\n'"2. Set proper permissions: chmod 600 ~/.ssh/${username}_key"
-            email_content="${email_content}"$'\n'"3. Connect to EC2: ssh -i ~/.ssh/${username}_key $username@EC2_IP_ADDRESS"
+            email_content="${email_content}"$'\n'"USAGE INSTRUCTIONS:"
+            email_content="${email_content}"$'\n'"=================="
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Step 1: Save the Private Key"
+            email_content="${email_content}"$'\n'"- Copy the private key above (between the dashed lines)"
+            email_content="${email_content}"$'\n'"- Save it to a file: ~/.ssh/${username}_key"
+            email_content="${email_content}"$'\n'"- Example: mkdir -p ~/.ssh && nano ~/.ssh/${username}_key"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Step 2: Set Proper Permissions"
+            email_content="${email_content}"$'\n'"- Set restrictive permissions: chmod 600 ~/.ssh/${username}_key"
+            email_content="${email_content}"$'\n'"- Verify permissions: ls -la ~/.ssh/${username}_key"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Step 3: Connect to EC2 Instance"
+            email_content="${email_content}"$'\n'"- Use this command: ssh -i ~/.ssh/${username}_key $username@$instance_ip"
+            email_content="${email_content}"$'\n'"- Example: ssh -i ~/.ssh/rai002_key rai002@$instance_ip"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Step 4: Verify Connection"
+            email_content="${email_content}"$'\n'"- You should see a welcome message"
+            email_content="${email_content}"$'\n'"- Run 'whoami' to confirm your username"
+            email_content="${email_content}"$'\n'"- Run 'pwd' to see your home directory"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Troubleshooting:"
+            email_content="${email_content}"$'\n'"- If connection fails, check your private key file"
+            email_content="${email_content}"$'\n'"- Ensure permissions are correct (chmod 600)"
+            email_content="${email_content}"$'\n'"- Verify the instance IP address is correct"
+            email_content="${email_content}"$'\n'"- Check if you're connecting from an allowed network"
+            email_content="${email_content}"$'\n'$'\n'
+            email_content="${email_content}"$'\n'"Connection Summary:"
+            email_content="${email_content}"$'\n'"- Username: $username"
+            email_content="${email_content}"$'\n'"- Instance: $instance_name ($instance_id)"
+            email_content="${email_content}"$'\n'"- IP Address: $instance_ip"
+            email_content="${email_content}"$'\n'"- SSH Command: ssh -i ~/.ssh/${username}_key $username@$instance_ip"
             email_content="${email_content}"$'\n'$'\n'
             email_content="${email_content}"$'\n'"This is an automated message from the AWS EC2 User Provisioning System."
-            email_content="${email_content}"$'\n'"If you have any questions, please contact your system administrator."
+            email_content="${email_content}"$'\n'"If you have any questions or need assistance, please contact your system administrator."
             email_content="${email_content}"$'\n'$'\n'
             
             # Debug: Show email content preview
