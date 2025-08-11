@@ -313,14 +313,21 @@ jobs:
           echo "=== Creating Simplified Terraform Variables ==="
           
           # Create minimal terraform.tfvars for user provisioning
-          echo 'instance_ids = ["${{ github.event.inputs.instance_ids }}"]' > terraform.tfvars
-          echo 'aws_region = "${{ inputs.aws_region }}"' >> terraform.tfvars
-          echo 'dry_run = ${{ github.event.inputs.dry_run }}' >> terraform.tfvars
+          # Note: instance_ids should be a list, not a string
+          INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
+          AWS_REGION="${{ inputs.aws_region }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          
+          echo "instance_ids = [\"$INSTANCE_IDS\"]" > terraform.tfvars
+          echo "aws_region = \"$AWS_REGION\"" >> terraform.tfvars
+          echo "dry_run = $DRY_RUN" >> terraform.tfvars
           echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
           echo 'ssh_user = "ec2-user"' >> terraform.tfvars
           echo 'users_file = "../users.yaml"' >> terraform.tfvars
           
-          echo "✅ terraform.tfvars created (no SSH keys needed)"
+          echo "✅ terraform.tfvars created with proper formatting"
+          echo "Contents of terraform.tfvars:"
+          cat terraform.tfvars
           
       - name: Terraform Init
         run: |

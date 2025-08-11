@@ -17,6 +17,14 @@ data "aws_instance" "instance" {
   instance_id = each.value
 }
 
+# Local value to determine the best IP address for each instance
+locals {
+  instance_ips = {
+    for instance_id, instance in data.aws_instance.instance : instance_id => 
+      instance.public_ip != null && instance.public_ip != "" ? instance.public_ip : instance.private_ip
+  }
+}
+
 # Validate EC2 instances are accessible and ready for user provisioning
 resource "null_resource" "validate_instances" {
   for_each = { for instance_id in var.instance_ids : instance_id => instance_id }
@@ -27,11 +35,11 @@ resource "null_resource" "validate_instances" {
     instance_id  = each.value
   }
 
-  # Validate that instance has public IP and is running
+  # Validate that instance has an IP address and is running
   lifecycle {
     precondition {
-      condition     = data.aws_instance.instance[each.key].public_ip != null
-      error_message = "Instance ${each.value} does not have a public IP address. Please ensure the instance has a public IP or use a bastion host."
+      condition     = local.instance_ips[each.key] != null && local.instance_ips[each.key] != ""
+      error_message = "Instance ${each.value} does not have a valid IP address (neither public nor private). Please ensure the instance is running and has network connectivity."
     }
     precondition {
       condition     = data.aws_instance.instance[each.key].instance_state == "running"
@@ -41,7 +49,7 @@ resource "null_resource" "validate_instances" {
 
   connection {
     type        = "ssh"
-    host        = data.aws_instance.instance[each.key].public_ip
+    host        = local.instance_ips[each.key]
     user        = var.ssh_user
     private_key = file(var.ssh_private_key_path)
     timeout     = "5m"
@@ -53,7 +61,8 @@ resource "null_resource" "validate_instances" {
     inline = [
       "echo 'Validating instance ${each.value} is ready for user provisioning...'",
       "echo 'Instance ID: ${each.value}'",
-      "echo 'Public IP: ${data.aws_instance.instance[each.key].public_ip}'",
+      "echo 'IP Address: ${local.instance_ips[each.key]}'",
+      "echo 'IP Type: ${data.aws_instance.instance[each.key].public_ip != null && data.aws_instance.instance[each.key].public_ip != "" ? "Public" : "Private"}'",
       "echo 'Instance State: ${data.aws_instance.instance[each.key].instance_state}'",
       "echo 'Instance Type: ${data.aws_instance.instance[each.key].instance_type}'",
       "echo '✅ Instance ${each.value} is ready for user provisioning'"
