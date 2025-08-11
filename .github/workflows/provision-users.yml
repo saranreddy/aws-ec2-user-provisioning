@@ -234,6 +234,9 @@ jobs:
               aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/ssh_keys/${user}_public_key
               
               echo "📥 Downloaded existing keys for $user from S3"
+              
+              # Mark this user as existing (no email needed)
+              echo "$user:existing" >> /tmp/user_key_status.txt
             else
               echo "🆕 No existing key found for $user, uploading newly generated key"
               
@@ -242,6 +245,9 @@ jobs:
               aws s3 cp /tmp/ssh_keys/${user}_public_key s3://$BUCKET_NAME/keys/${user}_public_key --sse AES256
               
               echo "📤 Uploaded new keys for $user to S3"
+              
+              # Mark this user as new (email needed)
+              echo "$user:new" >> /tmp/user_key_status.txt
             fi
             
             echo ""
@@ -249,6 +255,22 @@ jobs:
           
           echo "✅ All keys processed in S3 bucket: $BUCKET_NAME"
           echo "📊 Summary: Existing keys preserved, new keys uploaded"
+          
+          # Show user status summary
+          echo ""
+          echo "📋 User Key Status Summary:"
+          if [ -f /tmp/user_key_status.txt ]; then
+            echo "New users (will receive emails):"
+            grep ":new$" /tmp/user_key_status.txt | cut -d: -f1 | while read user; do
+              echo "  ✅ $user - New key generated and uploaded"
+            done
+            
+            echo ""
+            echo "Existing users (no emails sent):"
+            grep ":existing$" /tmp/user_key_status.txt | cut -d: -f1 | while read user; do
+              echo "  ℹ️  $user - Existing key preserved, no email needed"
+            done
+          fi
           
       - name: Install SSH Keys on EC2 Instance
         if: github.event.inputs.dry_run != 'true'
@@ -617,6 +639,21 @@ jobs:
               print(f"   - Name: {instance_name}")
               print()
               
+              # Read user key status from the file created by the S3 step
+              user_key_status = {}
+              try:
+                  with open('/tmp/user_key_status.txt', 'r') as f:
+                      for line in f:
+                          line = line.strip()
+                          if ':' in line:
+                              username, status = line.split(':', 1)
+                              user_key_status[username] = status
+                  print(f"📋 User key status loaded: {len(user_key_status)} users")
+              except FileNotFoundError:
+                  print("⚠️  User key status file not found, treating all users as new")
+              except Exception as e:
+                  print(f"⚠️  Error reading user key status: {e}")
+              
               # Read users from users.yaml
               try:
                   with open('users.yaml', 'r') as f:
@@ -631,6 +668,8 @@ jobs:
               # Process each user
               success_count = 0
               total_count = len(users)
+              new_users_count = 0
+              existing_users_count = 0
               
               for user_data in users:
                   username = user_data['username']
@@ -642,7 +681,19 @@ jobs:
                       print(f"⚠️  Skipping user {username} - no email address found")
                       continue
                   
-                  print(f"🧪 Processing user: {username} ({full_name}) -> {user_email}")
+                  # Check if this user is new or existing based on key status
+                  user_status = user_key_status.get(username, 'new')  # Default to 'new' if status unknown
+                  
+                  if user_status == 'existing':
+                      print(f"ℹ️  User {username} ({full_name}) - Existing key preserved, skipping email")
+                      existing_users_count += 1
+                      continue
+                  elif user_status == 'new':
+                      print(f"🆕 User {username} ({full_name}) - New key generated, sending email to {user_email}")
+                      new_users_count += 1
+                  else:
+                      print(f"❓ User {username} ({full_name}) - Unknown status '{user_status}', treating as new user")
+                      new_users_count += 1
                   
                   # Check if key file exists
                   key_file = f"/tmp/ssh_keys/{username}_private_key"
@@ -659,24 +710,30 @@ jobs:
                       print(f"❌ Error reading key file: {e}")
                       continue
                   
-                  # Send email to user's own email address
+                  # Send email only to new users
                   if send_ssh_key_email(username, full_name, user_email, private_key_content, 
                                      instance_id, instance_ip, instance_name,
                                      smtp_host, smtp_port):
                       success_count += 1
+                      print(f"📧 Email sent to {user_email} for user {username}")
+                  else:
+                      print(f"❌ Failed to send email for user {username}")
                   
                   print()
               
               # Summary
               print("=== Email Delivery Summary ===")
               print(f"Total users processed: {total_count}")
+              print(f"New users (emails sent): {new_users_count}")
+              print(f"Existing users (no emails): {existing_users_count}")
               print(f"Emails sent successfully: {success_count}")
-              print(f"Emails failed: {total_count - success_count}")
+              print(f"Emails failed: {new_users_count - success_count}")
               print()
               
               if success_count > 0:
-                  print(f"✅ SSH keys processed successfully for {success_count} users")
-                  print(f"📧 Each user received their key at their own email address")
+                  print(f"✅ SSH keys processed successfully for {success_count} new users")
+                  print(f"📧 Only new users received emails with their keys")
+                  print(f"ℹ️  Existing users maintained their access without emails")
                   return 0
               else:
                   print("❌ No emails were processed successfully")
