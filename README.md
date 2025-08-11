@@ -187,12 +187,24 @@ When manually triggering the workflow, you can specify:
 
 4. **Send Emails** (optional):
    ```bash
+   # Enhanced email with instance information
    python3 scripts/send_keys.py \
      --smtp-host "smtp.gmail.com" \
      --smtp-user "your-email@gmail.com" \
      --smtp-pass "your-app-password" \
      --users-file users.yaml \
+     --keys-dir terraform/keys \
      --terraform-dir terraform
+   
+   # Test email (port 25, no auth)
+   python3 scripts/send_keys.py \
+     --smtp-host "mailhost.umb.com" \
+     --smtp-port 25 \
+     --keys-dir terraform/keys \
+     --terraform-dir terraform \
+     --users-file users.yaml \
+     --test-email "your-email@example.com" \
+     --dry-run
    ```
 
 ## 🔧 Workflow Details
@@ -215,9 +227,15 @@ The workflow consists of three main jobs:
 
 ### Email Process
 
-1. **Load Keys**: Reads generated private keys
-2. **Create Emails**: Generates personalized HTML/text emails
-3. **Send via SMTP**: Delivers emails with SSH keys attached
+1. **Load Keys**: Reads generated private keys from Terraform
+2. **Get Instance Info**: Retrieves instance details from Terraform outputs
+3. **Create Enhanced Emails**: Generates personalized HTML/text emails with:
+   - Username and full name
+   - Instance ID and type
+   - IP address (private preferred for security)
+   - Region information
+   - SSH connection instructions
+4. **Send via SMTP**: Delivers emails with SSH keys attached
 
 ## 🔒 Security Features
 

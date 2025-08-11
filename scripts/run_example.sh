@@ -129,6 +129,7 @@ test_email_script() {
         --smtp-pass "$SMTP_PASS" \
         --dry-run \
         --users-file users.yaml \
+        --keys-dir terraform/keys \
         --terraform-dir terraform
     
     print_success "Email script test completed"

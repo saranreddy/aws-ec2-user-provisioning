@@ -12,6 +12,7 @@ output "instance_details" {
     for instance_id in var.instance_ids : instance_id => {
       instance_id   = instance_id
       public_ip     = data.aws_instance.instance[instance_id].public_ip
+      private_ip    = data.aws_instance.instance[instance_id].private_ip
       instance_type = data.aws_instance.instance[instance_id].instance_type
       state         = data.aws_instance.instance[instance_id].instance_state
       region        = var.aws_region
