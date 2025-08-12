@@ -151,10 +151,10 @@ jobs:
             echo "DISCOVERED_INSTANCES=$INSTANCE_IDS" >> $GITHUB_ENV
             echo "INSTANCE_COUNT=$(echo "$TAGGED_INSTANCES" | jq length)" >> $GITHUB_ENV
             
-            # Create a summary for the user
-            echo "📊 Instance Discovery Summary:" >> $GITHUB_ENV
-            echo "  - Total instances found: $(echo "$TAGGED_INSTANCES" | jq length)" >> $GITHUB_ENV
-            echo "  - Instances: $INSTANCE_IDS" >> $GITHUB_ENV
+            # Display summary to user (don't write to environment file)
+            echo "📊 Instance Discovery Summary:"
+            echo "  - Total instances found: $(echo "$TAGGED_INSTANCES" | jq length)"
+            echo "  - Instances: $INSTANCE_IDS"
           else
             echo "❌ No running instances found in region ${{ inputs.aws_region }}"
             echo "Please ensure you have running EC2 instances in this region"
@@ -220,13 +220,9 @@ jobs:
           
           echo "📋 Using discovered instances: ${{ env.DISCOVERED_INSTANCES }}"
           
-          # Convert space-separated string to array
-          INSTANCE_IDS=(${{ env.DISCOVERED_INSTANCES }})
-          echo "🔍 Processing ${#INSTANCE_IDS[@]} instances..."
-          
-          # Get details for the first instance (for now, we'll use the first one)
-          # In the future, this could be enhanced to handle multiple instances
-          FIRST_INSTANCE_ID="${INSTANCE_IDS[0]}"
+          # Get the first instance ID from the space-separated list
+          FIRST_INSTANCE_ID=$(echo "${{ env.DISCOVERED_INSTANCES }}" | awk '{print $1}')
+          echo "🔍 Processing instances: ${{ env.DISCOVERED_INSTANCES }}"
           echo "🎯 Using first discovered instance: $FIRST_INSTANCE_ID"
           
           # Get instance details
