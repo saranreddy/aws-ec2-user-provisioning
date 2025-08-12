@@ -12,6 +12,10 @@ terraform/keys/
 *.pem
 *.pub
 *.key
+*_private_key
+*_public_key
+ssh_keys/
+/tmp/ssh_keys/
 
 # Python
 __pycache__/
