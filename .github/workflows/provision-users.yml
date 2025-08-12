@@ -9,22 +9,6 @@ name: Provision Users on AWS EC2 Instances
 on:
   workflow_dispatch:
     inputs:
-      instance_ids:
-        description: 'Select EC2 instance ID from the dropdown'
-        required: true
-        type: choice
-        options:
-          - i-0d2ea774d38f88fe2
-          - i-059108826eb667a3d
-          - i-03810d57b29eff7fa
-          - i-04f6cf69514fab8ec
-          - i-069c4707f66eee735
-          - i-038146dc9a729c973
-          - i-0ce61b84050ece568
-          - i-0079b3bcbc7b9c83e
-          - i-0a6b63f03c28c1336
-          - i-019d6e26b39617852
-          - i-00ca906185f13e772
       aws_account_id:
         description: 'AWS Account ID:'
         required: true
@@ -110,48 +94,181 @@ jobs:
           
           echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
           
+      - name: Install Required Tools
+        run: |
+          echo "=== Installing Required Tools ==="
+          
+          # Install jq for JSON parsing
+          if ! command -v jq &> /dev/null; then
+            echo "📦 Installing jq..."
+            apt-get update && apt-get install -y jq
+            echo "✅ jq installed successfully"
+          else
+            echo "✅ jq already available"
+          fi
+          
+          # Verify jq installation
+          jq --version
+          echo "✅ All required tools are available"
+          
+      - name: Discover EC2 Instances
+        run: |
+          echo "🔍 Discovering EC2 instances in region: ${{ inputs.aws_region }}"
+          
+          # Query AWS for running instances with user provisioning tag
+          echo "📋 Querying AWS for running instances..."
+          
+          # First, try to find instances with UserProvisioning tag
+          TAGGED_INSTANCES=$(aws ec2 describe-instances \
+            --region "${{ inputs.aws_region }}" \
+            --filters \
+              "Name=instance-state-name,Values=running" \
+              "Name=tag:UserProvisioning,Values=true" \
+            --query 'Reservations[].Instances[].[InstanceId,InstanceType,Tags[?Key==`Name`].Value|[0],PrivateIpAddress,PublicIpAddress]' \
+            --output json 2>/dev/null || echo "[]")
+          
+          # If no tagged instances found, fall back to all running instances
+          if [ "$TAGGED_INSTANCES" = "[]" ] || [ -z "$TAGGED_INSTANCES" ]; then
+            echo "ℹ️  No instances found with UserProvisioning tag, discovering all running instances..."
+            
+            TAGGED_INSTANCES=$(aws ec2 describe-instances \
+              --region "${{ inputs.aws_region }}" \
+              --filters "Name=instance-state-name,Values=running" \
+              --query 'Reservations[].Instances[].[InstanceId,InstanceType,Tags[?Key==`Name`].Value|[0],PrivateIpAddress,PublicIpAddress]' \
+              --output json 2>/dev/null || echo "[]")
+          fi
+          
+          # Parse the JSON output to extract instance IDs
+          if [ "$TAGGED_INSTANCES" != "[]" ] && [ -n "$TAGGED_INSTANCES" ]; then
+            echo "✅ Found instances:"
+            echo "$TAGGED_INSTANCES" | jq -r '.[] | "  - \(.[0]) (\(.[2] or "Unnamed")) - \(.[1]) - IP: \(.[3] or .[4] or "N/A")"'
+            
+            # Extract just the instance IDs for the workflow
+            INSTANCE_IDS=$(echo "$TAGGED_INSTANCES" | jq -r '.[][0]' | tr '\n' ' ')
+            echo "📝 Instance IDs: $INSTANCE_IDS"
+            
+            # Save to environment variables
+            echo "DISCOVERED_INSTANCES=$INSTANCE_IDS" >> $GITHUB_ENV
+            echo "INSTANCE_COUNT=$(echo "$TAGGED_INSTANCES" | jq length)" >> $GITHUB_ENV
+            
+            # Create a summary for the user
+            echo "📊 Instance Discovery Summary:" >> $GITHUB_ENV
+            echo "  - Total instances found: $(echo "$TAGGED_INSTANCES" | jq length)" >> $GITHUB_ENV
+            echo "  - Instances: $INSTANCE_IDS" >> $GITHUB_ENV
+          else
+            echo "❌ No running instances found in region ${{ inputs.aws_region }}"
+            echo "Please ensure you have running EC2 instances in this region"
+            exit 1
+          fi
+          
+          echo ""
+          echo "🎯 Dynamic instance discovery completed successfully!"
+          
+      - name: Display Discovered Instances
+        run: |
+          echo "=== Discovered EC2 Instances ==="
+          echo ""
+          
+          if [ -n "${{ env.DISCOVERED_INSTANCES }}" ]; then
+            echo "🔍 Found ${{ env.INSTANCE_COUNT }} running instance(s) in region ${{ inputs.aws_region }}:"
+            echo ""
+            
+            # Get detailed information for each discovered instance
+            for instance_id in ${{ env.DISCOVERED_INSTANCES }}; do
+              echo "📋 Instance: $instance_id"
+              
+              # Get instance details
+              INSTANCE_INFO=$(aws ec2 describe-instances \
+                --instance-ids "$instance_id" \
+                --query 'Reservations[0].Instances[0].[InstanceType,Tags[?Key==`Name`].Value|[0],PrivateIpAddress,PublicIpAddress,State.Name]' \
+                --output json 2>/dev/null || echo "[]")
+              
+              if [ "$INSTANCE_INFO" != "[]" ]; then
+                INSTANCE_TYPE=$(echo "$INSTANCE_INFO" | jq -r '.[0] // "Unknown"')
+                INSTANCE_NAME=$(echo "$INSTANCE_INFO" | jq -r '.[1] // "Unnamed"')
+                PRIVATE_IP=$(echo "$INSTANCE_INFO" | jq -r '.[2] // "N/A"')
+                PUBLIC_IP=$(echo "$INSTANCE_INFO" | jq -r '.[3] // "N/A"')
+                STATE=$(echo "$INSTANCE_INFO" | jq -r '.[4] // "Unknown"')
+                
+                echo "   - Name: $INSTANCE_NAME"
+                echo "   - Type: $INSTANCE_TYPE"
+                echo "   - State: $STATE"
+                echo "   - Private IP: $PRIVATE_IP"
+                echo "   - Public IP: $PUBLIC_IP"
+              else
+                echo "   - Details: Unable to retrieve"
+              fi
+              echo ""
+            done
+            
+            echo "✅ Instance discovery completed successfully!"
+            echo "🎯 The workflow will use the first discovered instance for user provisioning"
+          else
+            echo "❌ No instances were discovered"
+            exit 1
+          fi
+          
       - name: Get EC2 Instance Details
         run: |
           echo "=== Getting EC2 Instance Details ==="
           
-          INSTANCE_ID="${{ github.event.inputs.instance_ids }}"
-          REGION="${{ inputs.aws_region }}"
+          # Use discovered instances from the previous step
+          if [ -z "${{ env.DISCOVERED_INSTANCES }}" ]; then
+            echo "❌ No instances discovered. Please check the instance discovery step."
+            exit 1
+          fi
+          
+          echo "📋 Using discovered instances: ${{ env.DISCOVERED_INSTANCES }}"
+          
+          # Convert space-separated string to array
+          INSTANCE_IDS=(${{ env.DISCOVERED_INSTANCES }})
+          echo "🔍 Processing ${#INSTANCE_IDS[@]} instances..."
+          
+          # Get details for the first instance (for now, we'll use the first one)
+          # In the future, this could be enhanced to handle multiple instances
+          FIRST_INSTANCE_ID="${INSTANCE_IDS[0]}"
+          echo "🎯 Using first discovered instance: $FIRST_INSTANCE_ID"
           
           # Get instance details
-          INSTANCE_INFO=$(aws ec2 describe-instances \
-            --instance-ids $INSTANCE_ID \
-            --region $REGION \
+          INSTANCE_DETAILS=$(aws ec2 describe-instances \
+            --instance-ids "$FIRST_INSTANCE_ID" \
             --query 'Reservations[0].Instances[0]' \
             --output json)
           
-          # Try to get public IP first, fall back to private IP if public is not available
-          PUBLIC_IP=$(echo $INSTANCE_INFO | jq -r '.PublicIpAddress')
-          PRIVATE_IP=$(echo $INSTANCE_INFO | jq -r '.PrivateIpAddress')
-          
-          if [ "$PUBLIC_IP" != "null" ] && [ -n "$PUBLIC_IP" ]; then
-            echo "✅ Using public IP for instance $INSTANCE_ID"
-            INSTANCE_IP="$PUBLIC_IP"
-            IP_TYPE="public"
-          elif [ "$PRIVATE_IP" != "null" ] && [ -n "$PRIVATE_IP" ]; then
-            echo "✅ Using private IP for instance $INSTANCE_ID (public IP not available)"
-            INSTANCE_IP="$PRIVATE_IP"
-            IP_TYPE="private"
-          else
-            echo "❌ Could not get IP address for instance $INSTANCE_ID"
-            echo "Instance info: $INSTANCE_INFO"
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully retrieved instance details"
+            
+            # Extract IP addresses
+            PRIVATE_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.PrivateIpAddress // empty')
+            PUBLIC_IP=$(echo "$INSTANCE_DETAILS" | jq -r '.PublicIpAddress // empty')
+            
+            # Determine which IP to use (prefer private for security)
+            if [ -n "$PRIVATE_IP" ] && [ "$PRIVATE_IP" != "null" ]; then
+              INSTANCE_IP="$PRIVATE_IP"
+              IP_TYPE="Private"
+              echo "🌐 Using Private IP: $INSTANCE_IP"
+            elif [ -n "$PUBLIC_IP" ] && [ "$PUBLIC_IP" != "null" ]; then
+              INSTANCE_IP="$PUBLIC_IP"
+              IP_TYPE="Public"
+              echo "🌐 Using Public IP: $INSTANCE_IP"
+            else
+              echo "❌ No IP address found for instance $FIRST_INSTANCE_ID"
               exit 1
             fi
-          
-          echo "Instance ID: $INSTANCE_ID"
-          echo "IP Address: $INSTANCE_IP ($IP_TYPE)"
-          echo "Region: $REGION"
-          
-          # Store for later use
-          echo "EC2_INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
-          echo "EC2_INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "EC2_IP_TYPE=$IP_TYPE" >> $GITHUB_ENV
-          
-          echo "✅ EC2 instance details retrieved"
+            
+            # Save to environment variables
+            echo "EC2_INSTANCE_ID=$FIRST_INSTANCE_ID" >> $GITHUB_ENV
+            echo "EC2_INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
+            echo "EC2_IP_TYPE=$IP_TYPE" >> $GITHUB_ENV
+            
+            echo "✅ Instance details saved:"
+            echo "   - Instance ID: $FIRST_INSTANCE_ID"
+            echo "   - IP Address: $INSTANCE_IP ($IP_TYPE)"
+            
+          else
+            echo "❌ Failed to get instance details for $FIRST_INSTANCE_ID"
+            exit 1
+          fi
           
       - name: Generate SSH Keys
         run: |
@@ -783,11 +900,19 @@ jobs:
           echo "🎉 USER PROVISIONING COMPLETED SUCCESSFULLY! 🎉"
           echo ""
           echo "📋 Summary:"
-          echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
+          echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }} (dynamically discovered)"
           echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
+          echo "- Discovery Method: Dynamic AWS query for running instances"
+          echo "- Total Instances Found: ${{ env.INSTANCE_COUNT }}"
           echo "- Users Created: $USERS"
           echo "- SSH Keys: Available in S3 bucket and sent via email"
           echo "- Access Verified: All users can SSH to EC2"
+          echo ""
+          echo "🔍 Discovery Details:"
+          echo "- Discovery Timestamp: $(date +"%Y%m%d-%H%M%S")"
+          echo "- AWS Region: ${{ inputs.aws_region }}"
+          echo "- Instances Discovered: ${{ env.DISCOVERED_INSTANCES }}"
+          echo "- Selected Instance: ${{ env.EC2_INSTANCE_ID }} (first from discovered list)"
           echo ""
           echo "🔍 Verification Details:"
           echo "- Verification Timestamp: $(date +"%Y%m%d-%H%M%S")"
@@ -817,5 +942,11 @@ jobs:
           echo "5. Verification files created: ~/user_verification_*.txt"
           echo ""
           echo "🎯 No manual verification needed - all tests passed automatically!"
+          echo ""
+          echo "🚀 Dynamic Discovery Benefits:"
+          echo "- No more hardcoded instance IDs"
+          echo "- Always discovers current running instances"
+          echo "- Automatic fallback to all running instances if no tags found"
+          echo "- Professional, enterprise-grade workflow"
 
  
