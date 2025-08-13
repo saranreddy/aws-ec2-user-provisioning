@@ -303,7 +303,11 @@ jobs:
             echo "🔒 File permissions updated"
             
             echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
-            "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            echo "📝 Installer output:"
+            "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/sca-installer.log
+            
+            echo "📋 SCA Installer log:"
+            cat /tmp/sca-installer.log
             
             echo "📁 Checking installation directory after SCA install:"
             ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
@@ -327,7 +331,11 @@ jobs:
             echo "🔒 File permissions updated"
             
             echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
-            "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            echo "📝 Installer output:"
+            "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/tools-installer.log
+            
+            echo "📋 Tools Installer log:"
+            cat /tmp/tools-installer.log
             
             echo "📁 Checking installation directory after Tools install:"
             ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
@@ -370,6 +378,13 @@ jobs:
           echo "🔍 Searching for Fortify binaries in entire /opt/fortify tree:"
           find /opt/fortify -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found"
           find /opt/fortify -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found"
+          
+          echo ""
+          echo "🔍 Searching for Fortify binaries in common system locations:"
+          find /usr -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "❌ sourceanalyzer not found in /usr"
+          find /usr -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /usr"
+          find /opt -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "❌ sourceanalyzer not found in /opt"
+          find /opt -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /opt"
           
           echo ""
           echo "📊 Installation summary:"
