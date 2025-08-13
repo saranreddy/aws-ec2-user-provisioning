@@ -140,9 +140,9 @@ jobs:
           
           cd /tmp/fortify-install
           
-          # Create Fortify installation directory
-          mkdir -p /opt/fortify
-          cd /opt/fortify
+          # Create Fortify installation directory in user-writable location
+          mkdir -p /tmp/fortify
+          cd /tmp/fortify
           
           echo "🔧 Installing Fortify SCA..."
           tar -xzf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
@@ -160,8 +160,8 @@ jobs:
           unzip /tmp/fortify-install/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip
           
           # Set up environment variables
-          echo 'export FORTIFY_HOME=/opt/fortify' >> $GITHUB_ENV
-          echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
+          echo 'export FORTIFY_HOME=/tmp/fortify' >> $GITHUB_ENV
+          echo 'export PATH=$PATH:/tmp/fortify/bin' >> $GITHUB_ENV
           
           echo "✅ Fortify installation completed"
           ls -la /opt/fortify
@@ -170,21 +170,21 @@ jobs:
         run: |
           echo "=== Verifying Fortify Installation ==="
           
-          export FORTIFY_HOME=/opt/fortify
-          export PATH=$PATH:/opt/fortify/bin
+          export FORTIFY_HOME=/tmp/fortify
+          export PATH=$PATH:/tmp/fortify/bin
           
           # Check if Fortify binaries are available
-          if [ -f "/opt/fortify/bin/sourceanalyzer" ]; then
+          if [ -f "/tmp/fortify/bin/sourceanalyzer" ]; then
             echo "✅ Fortify SCA binary found"
-            /opt/fortify/bin/sourceanalyzer -version
+            /tmp/fortify/bin/sourceanalyzer -version
           else
             echo "❌ Fortify SCA binary not found"
             exit 1
           fi
           
-          if [ -f "/opt/fortify/bin/fortifyclient" ]; then
+          if [ -f "/tmp/fortify/bin/fortifyclient" ]; then
             echo "✅ Fortify Client binary found"
-            /opt/fortify/bin/fortifyclient -version
+            /tmp/fortify/bin/fortifyclient -version
           else
             echo "❌ Fortify Client binary not found"
             exit 1
@@ -196,8 +196,8 @@ jobs:
         run: |
           echo "=== Running Fortify Security Scan ==="
           
-          export FORTIFY_HOME=/opt/fortify
-          export PATH=$PATH:/opt/fortify/bin
+          export FORTIFY_HOME=/tmp/fortify
+          export PATH=$PATH:/tmp/fortify/bin
           
           # Create scan results directory
           mkdir -p /tmp/fortify-scan-results
@@ -224,11 +224,11 @@ jobs:
           
           # Initialize scan
           echo "🚀 Initializing Fortify scan..."
-          /opt/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS -clean
+          /tmp/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS -clean
           
           # Add source files
           echo "📂 Adding source files to scan..."
-          /opt/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS \
+          /tmp/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS \
             -src $GITHUB_WORKSPACE \
             -exclude "*.git*" \
             -exclude "*.terraform*" \
@@ -237,7 +237,7 @@ jobs:
           
           # Run the scan
           echo "🔍 Executing security scan..."
-          /opt/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS -scan -f fortify-scan.fpr
+          /tmp/fortify/bin/sourceanalyzer -b fortify-scan $SCAN_OPTIONS -scan -f fortify-scan.fpr
           
           if [ -f "fortify-scan.fpr" ]; then
             echo "✅ Security scan completed successfully"
@@ -252,22 +252,22 @@ jobs:
         run: |
           echo "=== Generating Scan Report ==="
           
-          export FORTIFY_HOME=/opt/fortify
-          export PATH=$PATH:/opt/fortify/bin
+          export FORTIFY_HOME=/tmp/fortify
+          export PATH=$PATH:/tmp/fortify/bin
           
           cd /tmp/fortify-scan-results
           
           # Generate HTML report
           echo "📄 Generating HTML report..."
-          /opt/fortify/bin/ReportGenerator -format html -f fortify-scan.html -source fortify-scan.fpr
+          /tmp/fortify/bin/ReportGenerator -format html -f fortify-scan.html -source fortify-scan.fpr
           
           # Generate text summary
           echo "📋 Generating text summary..."
-          /opt/fortify/bin/fortifyclient -project fortify-scan -f fortify-scan-summary.txt
+          /tmp/fortify/bin/fortifyclient -project fortify-scan -f fortify-scan-summary.txt
           
           # Generate JSON report
           echo "📊 Generating JSON report..."
-          /opt/fortify/bin/ReportGenerator -format json -f fortify-scan.json -source fortify-scan.fpr
+          /tmp/fortify/bin/ReportGenerator -format json -f fortify-scan.json -source fortify-scan.fpr
           
           echo "✅ Scan reports generated successfully"
           ls -la *.html *.txt *.json *.fpr
