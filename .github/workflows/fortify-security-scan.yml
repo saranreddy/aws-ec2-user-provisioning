@@ -389,10 +389,12 @@ jobs:
           
           echo ""
           echo "🔍 Searching for Fortify binaries in common system locations:"
-          find /usr -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "❌ sourceanalyzer not found in /usr"
-          find /usr -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /usr"
-          find /opt -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "❌ sourceanalyzer not found in /opt"
-          find /opt -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /opt"
+          echo "⏱️ Searching with timeout to avoid hanging..."
+          
+          timeout 30s find /usr -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "⏱️ sourceanalyzer search timed out or not found in /usr"
+          timeout 30s find /usr -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "⏱️ fortifyclient search timed out or not found in /usr"
+          timeout 30s find /opt -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "⏱️ sourceanalyzer search timed out or not found in /opt"
+          timeout 30s find /opt -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "⏱️ fortifyclient search timed out or not found in /opt"
           
           echo ""
           echo "🔍 Searching for Fortify binaries in Fortify subdirectories:"
@@ -403,6 +405,17 @@ jobs:
           echo "📂 /opt/fortify/Tools:"
           find /opt/fortify/Tools -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found in Tools"
           find /opt/fortify/Tools -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found in Tools"
+          
+          echo ""
+          echo "🔍 Quick targeted search in common Fortify locations:"
+          echo "📂 Checking /opt/fortify/bin directly:"
+          ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin not accessible"
+          
+          echo "📂 Checking /opt/fortify/Core/bin:"
+          ls -la /opt/fortify/Core/bin/ 2>/dev/null || echo "❌ /opt/fortify/Core/bin not found"
+          
+          echo "📂 Checking /opt/fortify/Tools/bin:"
+          ls -la /opt/fortify/Tools/bin/ 2>/dev/null || echo "❌ /opt/fortify/Tools/bin not found"
           
           echo ""
           echo "📊 Installation summary:"
