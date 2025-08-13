@@ -369,40 +369,38 @@ jobs:
           echo "✅ Fortify components extracted"
           
           echo ""
-          echo "🔧 SMART SOLUTION: Setting up proper Fortify structure..."
-          echo "=================================================="
+          echo "🔧 REAL SMART SOLUTION: Download and extract actual Fortify components..."
+          echo "====================================================================="
           
           # Create the proper bin directory
           mkdir -p /opt/fortify/bin
           
-          # Extract the actual Fortify components from the .zip files
-          echo "📦 Extracting Fortify SCA component..."
-          cd /opt/fortify
+          # Download the actual Fortify component files from S3
+          echo "📥 Downloading actual Fortify SCA component..."
+          cd /tmp
           
-          # Look for SCA component zip files
-          SCA_ZIP=$(find . -name "*SCA*" -name "*.zip" | head -1)
-          if [ -n "$SCA_ZIP" ]; then
-            echo "🔍 Found SCA component: $SCA_ZIP"
-            unzip -o "$SCA_ZIP" -d /tmp/sca-extract
+          # Download SCA component (the actual binary package)
+          if aws s3 cp "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" ./ 2>/dev/null; then
+            echo "✅ SCA component downloaded"
+            unzip -o "Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" -d /tmp/sca-extract
             # Look for binaries in the extracted content
             find /tmp/sca-extract -name "sourceanalyzer" -type f -exec cp {} /opt/fortify/bin/ \;
             find /tmp/sca-extract -name "fortifyclient" -type f -exec cp {} /opt/fortify/bin/ \;
             echo "✅ SCA binaries extracted to /opt/fortify/bin"
           else
-            echo "❌ No SCA component zip found"
+            echo "❌ SCA component not found in S3"
           fi
           
-          echo "📦 Extracting Fortify Tools component..."
-          # Look for Tools component zip files
-          TOOLS_ZIP=$(find . -name "*Tools*" -name "*.zip" | head -1)
-          if [ -n "$TOOLS_ZIP" ]; then
-            echo "🔍 Found Tools component: $TOOLS_ZIP"
-            unzip -o "$TOOLS_ZIP" -d /tmp/tools-extract
+          echo "📥 Downloading actual Fortify Tools component..."
+          # Download Tools component
+          if aws s3 cp "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" ./ 2>/dev/null; then
+            echo "✅ Tools component downloaded"
+            unzip -o "Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" -d /tmp/tools-extract
             # Look for additional binaries
             find /tmp/tools-extract -name "*.exe" -o -name "*" -type f -executable | head -5 | xargs -I {} cp {} /opt/fortify/bin/ 2>/dev/null || true
             echo "✅ Tools binaries extracted to /opt/fortify/bin"
           else
-            echo "❌ No Tools component zip found"
+            echo "❌ Tools component not found in S3"
           fi
           
           # Set proper permissions
