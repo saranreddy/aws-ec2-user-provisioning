@@ -304,10 +304,26 @@ jobs:
             
             echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
             echo "📝 Installer output:"
+            echo "🔍 Before installation - checking current state:"
+            echo "📂 /opt/fortify contents before SCA install:"
+            ls -la /opt/fortify/ 2>/dev/null || echo "❌ /opt/fortify not accessible"
+            
+            echo ""
+            echo "🚀 Executing SCA installer..."
             "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/sca-installer.log
             
+            echo ""
             echo "📋 SCA Installer log:"
             cat /tmp/sca-installer.log
+            
+            echo ""
+            echo "🔍 After installation - checking what changed:"
+            echo "📂 /opt/fortify contents after SCA install:"
+            ls -la /opt/fortify/ 2>/dev/null || echo "❌ /opt/fortify not accessible"
+            
+            echo ""
+            echo "🔍 Checking for any new directories created:"
+            find /opt/fortify -type d -newer /tmp/sca-installer.log 2>/dev/null || echo "❌ No new directories found"
             
             echo "📁 Checking installation directory after SCA install:"
             ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
@@ -416,6 +432,17 @@ jobs:
           
           echo "📂 Checking /opt/fortify/Tools/bin:"
           ls -la /opt/fortify/Tools/bin/ 2>/dev/null || echo "❌ /opt/fortify/Tools/bin not found"
+          
+          echo ""
+          echo "🔍 Analyzing installer behavior:"
+          echo "📋 Checking if installers created any hidden directories:"
+          find /opt/fortify -type d -name ".*" 2>/dev/null || echo "❌ No hidden directories found"
+          
+          echo "📋 Checking if installers created any nested structures:"
+          find /opt/fortify -type d -mindepth 2 2>/dev/null | head -10 || echo "❌ No nested directories found"
+          
+          echo "📋 Checking if installers created any symlinks:"
+          find /opt/fortify -type l 2>/dev/null || echo "❌ No symlinks found"
           
           echo ""
           echo "📊 Installation summary:"
