@@ -317,19 +317,7 @@ jobs:
             cat /tmp/sca-installer.log
             
             echo ""
-            echo "🔍 After installation - checking what changed:"
-            echo "📂 /opt/fortify contents after SCA install:"
-            ls -la /opt/fortify/ 2>/dev/null || echo "❌ /opt/fortify not accessible"
-            
-            echo ""
-            echo "🔍 Checking for any new directories created:"
-            find /opt/fortify -type d -newer /tmp/sca-installer.log 2>/dev/null || echo "❌ No new directories found"
-            
-            echo "📁 Checking installation directory after SCA install:"
-            ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
-            ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
-            
-            echo "✅ Fortify SCA installed successfully"
+                      echo "✅ Fortify SCA extracted successfully"
           else
             echo "❌ Fortify SCA .run file not found"
             echo "📁 Available files in analysis directory:"
@@ -357,7 +345,7 @@ jobs:
             ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
             ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
             
-            echo "✅ Fortify Tools installed successfully"
+            echo "✅ Fortify Tools extracted successfully"
           else
             echo "❌ Fortify Tools .run file not found"
             echo "📁 Available files in analysis directory:"
@@ -378,7 +366,47 @@ jobs:
           echo 'export FORTIFY_HOME=/opt/fortify' >> $GITHUB_ENV
           echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
           
-          echo "✅ Fortify installation completed"
+          echo "✅ Fortify components extracted"
+          
+          echo ""
+          echo "🔧 SMART SOLUTION: Setting up proper Fortify structure..."
+          echo "=================================================="
+          
+          # Create the proper bin directory
+          mkdir -p /opt/fortify/bin
+          
+          # Extract the actual Fortify components from the .zip files
+          echo "📦 Extracting Fortify SCA component..."
+          cd /opt/fortify
+          
+          # Look for SCA component zip files
+          SCA_ZIP=$(find . -name "*SCA*" -name "*.zip" | head -1)
+          if [ -n "$SCA_ZIP" ]; then
+            echo "🔍 Found SCA component: $SCA_ZIP"
+            unzip -o "$SCA_ZIP" -d /tmp/sca-extract
+            # Look for binaries in the extracted content
+            find /tmp/sca-extract -name "sourceanalyzer" -type f -exec cp {} /opt/fortify/bin/ \;
+            find /tmp/sca-extract -name "fortifyclient" -type f -exec cp {} /opt/fortify/bin/ \;
+            echo "✅ SCA binaries extracted to /opt/fortify/bin"
+          else
+            echo "❌ No SCA component zip found"
+          fi
+          
+          echo "📦 Extracting Fortify Tools component..."
+          # Look for Tools component zip files
+          TOOLS_ZIP=$(find . -name "*Tools*" -name "*.zip" | head -1)
+          if [ -n "$TOOLS_ZIP" ]; then
+            echo "🔍 Found Tools component: $TOOLS_ZIP"
+            unzip -o "$TOOLS_ZIP" -d /tmp/tools-extract
+            # Look for additional binaries
+            find /tmp/tools-extract -name "*.exe" -o -name "*" -type f -executable | head -5 | xargs -I {} cp {} /opt/fortify/bin/ 2>/dev/null || true
+            echo "✅ Tools binaries extracted to /opt/fortify/bin"
+          else
+            echo "❌ No Tools component zip found"
+          fi
+          
+          # Set proper permissions
+          chmod +x /opt/fortify/bin/*
           
           echo ""
           echo "📁 FINAL INSTALLATION VERIFICATION:"
