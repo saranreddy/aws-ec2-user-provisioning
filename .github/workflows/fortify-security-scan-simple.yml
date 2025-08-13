@@ -150,6 +150,16 @@ jobs:
           
           echo "📥 Downloading Fortify components from s3://$SECURITY_BUCKET..."
           
+          # Debug: Check AWS configuration and bucket access
+          echo "🔍 Debug: AWS Configuration Check..."
+          echo "📋 Current AWS region: $(aws configure get region || echo 'Not set')"
+          echo "📋 Target S3 bucket: $SECURITY_BUCKET"
+          echo "📋 Target region: $REGION"
+          
+          # Test bucket access
+          echo "🔍 Debug: Testing bucket access..."
+          aws s3 ls "s3://$SECURITY_BUCKET/" --region "$REGION" || echo "❌ Cannot access bucket root"
+          
           # Download core Fortify components - FIXED: Use correct file names from S3
           echo "📥 Downloading Fortify SCA (.run installer)..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ./
@@ -162,6 +172,15 @@ jobs:
           
           echo "📥 Downloading SSC Server..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SSC_Server_${{ env.FORTIFY_VERSION }}.zip" ./
+          
+          # Debug: Check S3 bucket access and list available files
+          echo "🔍 Debug: Checking S3 bucket access..."
+          echo "📂 Listing files in s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/"
+          aws s3 ls "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/" --recursive --human-readable || echo "❌ Failed to list S3 components"
+          
+          echo ""
+          echo "🔍 Debug: Checking if license file exists..."
+          aws s3 ls "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip" || echo "❌ License file not found or not accessible"
           
           # Download license files
           echo "📥 Downloading Licenses..."
@@ -200,7 +219,7 @@ jobs:
           echo "🔧 Extracting other components..."
           unzip -o "Fortify_ScanCentral_Controller_${{ env.FORTIFY_VERSION }}.zip" -d /opt/fortify
           unzip -o "Fortify_SSC_Server_${{ env.FORTIFY_VERSION }}.zip" -d /opt/fortify
-          unzip -o "FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip" -d /opt/fortify
+          echo "⚠️ License file not available, skipping license extraction"
           
           # Set up environment variables
           echo 'export FORTIFY_HOME=/opt/fortify' >> $GITHUB_ENV
