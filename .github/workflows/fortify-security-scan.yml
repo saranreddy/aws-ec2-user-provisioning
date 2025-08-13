@@ -372,7 +372,15 @@ jobs:
           
           echo ""
           echo "📂 /opt/fortify/bin directory contents:"
-          ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
+          if [ -d "/opt/fortify/bin" ]; then
+            echo "✅ /opt/fortify/bin directory exists!"
+            ls -la /opt/fortify/bin/
+            echo ""
+            echo "📊 Files in /opt/fortify/bin: $(ls /opt/fortify/bin/ | wc -l)"
+            echo "📋 Contents: $(ls /opt/fortify/bin/ 2>/dev/null | tr '\n' ' ' || echo 'empty')"
+          else
+            echo "❌ /opt/fortify/bin directory not found"
+          fi
           
           echo ""
           echo "🔍 Searching for Fortify binaries in entire /opt/fortify tree:"
@@ -385,6 +393,16 @@ jobs:
           find /usr -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /usr"
           find /opt -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "❌ sourceanalyzer not found in /opt"
           find /opt -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "❌ fortifyclient not found in /opt"
+          
+          echo ""
+          echo "🔍 Searching for Fortify binaries in Fortify subdirectories:"
+          echo "📂 /opt/fortify/Core:"
+          find /opt/fortify/Core -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found in Core"
+          find /opt/fortify/Core -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found in Core"
+          
+          echo "📂 /opt/fortify/Tools:"
+          find /opt/fortify/Tools -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found in Tools"
+          find /opt/fortify/Tools -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found in Tools"
           
           echo ""
           echo "📊 Installation summary:"
