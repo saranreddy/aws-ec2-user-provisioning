@@ -185,17 +185,114 @@ jobs:
           
           echo "📥 Downloading Fortify components from s3://$SECURITY_BUCKET..."
           
-          # Download core Fortify components
-          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./
-          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./
+          # Download core Fortify components (try both .tar and .tar.gz)
+          echo "📥 Downloading Fortify SCA..."
+          if aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./ 2>/dev/null; then
+            echo "✅ SCA downloaded (.tar.gz)"
+          elif aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar" ./ 2>/dev/null; then
+            echo "✅ SCA downloaded (.tar)"
+          else
+            echo "❌ SCA file not found"
+          fi
+          
+          echo "📥 Downloading Fortify Tools..."
+          if aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./ 2>/dev/null; then
+            echo "✅ Tools downloaded (.tar.gz)"
+          elif aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ./ 2>/dev/null; then
+            echo "✅ Tools downloaded (.tar)"
+          else
+            echo "❌ Tools file not found"
+          fi
+          
+          echo "📥 Downloading ScanCentral Controller..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_ScanCentral_Controller_${{ env.FORTIFY_VERSION }}.zip" ./
+          
+          echo "📥 Downloading SSC Server..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SSC_Server_${{ env.FORTIFY_VERSION }}.zip" ./
           
           # Download license files
+          echo "📥 Downloading Licenses..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/licenses/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip" ./
           
           echo "✅ All Fortify components downloaded successfully"
           ls -la
+          
+      - name: Analyze Extracted Fortify Components
+        run: |
+          echo "=== Analyzing Extracted Fortify Components ==="
+          
+          cd /tmp/fortify-install
+          
+          echo "🔍 Creating analysis directory..."
+          mkdir -p /tmp/fortify-analysis
+          cd /tmp/fortify-analysis
+          
+          echo "📦 Extracting all components for analysis..."
+          
+          # Extract SCA component
+          echo "🔧 Extracting Fortify SCA..."
+          if [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
+            tar -xzf "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz"
+            echo "✅ SCA extracted"
+          elif [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
+            tar -xf "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar"
+            echo "✅ SCA extracted"
+          else
+            echo "❌ SCA file not found"
+          fi
+          
+          # Extract Tools component
+          echo "🔧 Extracting Fortify Tools..."
+          if [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
+            tar -xzf "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz"
+            echo "✅ Tools extracted"
+          elif [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
+            tar -xf "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar"
+            echo "✅ Tools extracted"
+          else
+            echo "❌ Tools file not found"
+          fi
+          
+          # Extract other components
+          echo "🔧 Extracting other components..."
+          for file in /tmp/fortify-install/*.zip; do
+            if [ -f "$file" ]; then
+              echo "📦 Extracting: $(basename "$file")"
+              unzip -o "$file"
+            fi
+          done
+          
+          echo ""
+          echo "📋 ANALYSIS RESULTS:"
+          echo "===================="
+          echo ""
+          echo "🔍 All extracted files and directories:"
+          find . -type f -o -type d | sort
+          
+          echo ""
+          echo "🚀 .run files found:"
+          find . -name "*.run" -type f | sort
+          
+          echo ""
+          echo "📁 Directory structure:"
+          tree . || find . -type d | sort
+          
+          echo ""
+          echo "📊 File count by type:"
+          echo "Total files: $(find . -type f | wc -l)"
+          echo "Total directories: $(find . -type d | wc -l)"
+          echo ".run files: $(find . -name "*.run" | wc -l)"
+          echo ".tar files: $(find . -name "*.tar" | wc -l)"
+          echo ".zip files: $(find . -name "*.zip" | wc -l)"
+          
+          echo ""
+          echo "💡 Installation recommendations:"
+          echo "- .run files should be executed with: chmod +x file.run && ./file.run --mode unattended --installdir /opt/fortify"
+          echo "- .tar files should be extracted with: tar -xf file.tar"
+          echo "- .zip files should be extracted with: unzip -o file.zip"
+          
+          echo ""
+          echo "✅ Component analysis completed"
           
       - name: Install Fortify Components
         run: |
@@ -208,10 +305,24 @@ jobs:
           cd /opt/fortify
           
           echo "🔧 Installing Fortify SCA..."
-          tar -xzf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
+          if [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
+            tar -xzf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
+          elif [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
+            tar -xf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar
+          else
+            echo "❌ SCA file not found for installation"
+            exit 1
+          fi
           
           echo "🔧 Installing Fortify Tools..."
-          tar -xzf /tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
+          if [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
+            tar -xzf /tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
+          elif [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
+            tar -xf /tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar
+          else
+            echo "❌ Tools file not found for installation"
+            exit 1
+          fi
           
           echo "🔧 Installing ScanCentral Controller..."
           unzip -o /tmp/fortify-install/Fortify_ScanCentral_Controller_${{ env.FORTIFY_VERSION }}.zip
@@ -227,7 +338,7 @@ jobs:
           echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
           
           echo "✅ Fortify installation completed"
-          ls -la /tmp/fortify
+          ls -la /opt/fortify
           
       - name: Verify Fortify Installation
         run: |
