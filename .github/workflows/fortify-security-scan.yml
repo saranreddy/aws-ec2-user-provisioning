@@ -185,24 +185,12 @@ jobs:
           
           echo "📥 Downloading Fortify components from s3://$SECURITY_BUCKET..."
           
-          # Download core Fortify components (try both .tar and .tar.gz)
+          # Download core Fortify components (the actual files that exist)
           echo "📥 Downloading Fortify SCA..."
-          if aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./ 2>/dev/null; then
-            echo "✅ SCA downloaded (.tar.gz)"
-          elif aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar" ./ 2>/dev/null; then
-            echo "✅ SCA downloaded (.tar)"
-          else
-            echo "❌ SCA file not found"
-          fi
+          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./
           
           echo "📥 Downloading Fortify Tools..."
-          if aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./ 2>/dev/null; then
-            echo "✅ Tools downloaded (.tar.gz)"
-          elif aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ./ 2>/dev/null; then
-            echo "✅ Tools downloaded (.tar)"
-          else
-            echo "❌ Tools file not found"
-          fi
+          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ./
           
           echo "📥 Downloading ScanCentral Controller..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_ScanCentral_Controller_${{ env.FORTIFY_VERSION }}.zip" ./
@@ -305,22 +293,24 @@ jobs:
           cd /opt/fortify
           
           echo "🔧 Installing Fortify SCA..."
-          if [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
-            tar -xzf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
-          elif [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
-            tar -xf /tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux.tar
+          if [ -f "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
+            echo "🚀 Executing Fortify SCA installer..."
+            chmod +x "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            echo "✅ Fortify SCA installed successfully"
           else
-            echo "❌ SCA file not found for installation"
+            echo "❌ Fortify SCA .run file not found"
             exit 1
           fi
           
           echo "🔧 Installing Fortify Tools..."
-          if [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
-            tar -xzf /tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz
-          elif [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
-            tar -xf /tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar
+          if [ -f "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
+            echo "🚀 Executing Fortify Tools installer..."
+            chmod +x "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            echo "✅ Fortify Tools installed successfully"
           else
-            echo "❌ Tools file not found for installation"
+            echo "❌ Fortify Tools .run file not found"
             exit 1
           fi
           
