@@ -52,6 +52,69 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
           
+      - name: Check Available Disk Space
+        run: |
+          echo " Checking available disk space..."
+          df -h
+          
+          # Check available space in /tmp (where we'll install Fortify)
+          AVAILABLE_KB=$(df /tmp | awk 'NR==2 {print $4}')
+          AVAILABLE_MB=$((AVAILABLE_KB / 1024))
+          AVAILABLE_GB=$((AVAILABLE_MB / 1024))
+          
+          echo "📊 Available disk space: ${AVAILABLE_GB}GB (${AVAILABLE_MB}MB)"
+          
+          # Need at least 4GB for Fortify installation + scan results
+          if [ $AVAILABLE_KB -lt 4000000 ]; then
+            echo "❌ Insufficient disk space (need at least 4GB, have ${AVAILABLE_GB}GB)"
+            echo "🧹 Attempting to clean up previous runs..."
+            
+            # Clean up previous failed runs
+            rm -rf /tmp/fortify-install 2>/dev/null || true
+            rm -rf /tmp/fortify 2>/dev/null || true
+            rm -rf /tmp/fortify-scan-results 2>/dev/null || true
+            
+            # Check space again after cleanup
+            AVAILABLE_KB_AFTER=$(df /tmp | awk 'NR==2 {print $4}')
+            AVAILABLE_MB_AFTER=$((AVAILABLE_KB_AFTER / 1024))
+            AVAILABLE_GB_AFTER=$((AVAILABLE_MB_AFTER / 1024))
+            
+            echo "📊 Available disk space after cleanup: ${AVAILABLE_GB_AFTER}GB (${AVAILABLE_MB_AFTER}MB)"
+            
+            if [ $AVAILABLE_KB_AFTER -lt 4000000 ]; then
+              echo "❌ Still insufficient disk space after cleanup"
+              exit 1
+            else
+              echo "✅ Sufficient disk space available after cleanup"
+            fi
+          else
+            echo "✅ Sufficient disk space available"
+          fi
+          
+      - name: Cleanup Previous Failed Runs
+        run: |
+          echo "🧹 Cleaning up files from previous failed runs..."
+          
+          # Remove any existing Fortify installation directories
+          rm -rf /tmp/fortify-install 2>/dev/null || true
+          rm -rf /tmp/fortify 2>/dev/null || true
+          rm -rf /tmp/fortify-scan-results 2>/dev/null || true
+          
+          # Clean up any partial downloads
+          find /tmp -name "Fortify_*" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.tar.gz" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.zip" -type f -delete 2>/dev/null || true
+          
+          # Clean up any temporary scan files
+          find /tmp -name "*.fpr" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.html" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.txt" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.json" -type f -delete 2>/dev/null || true
+          
+          echo "✅ Cleanup completed"
+          echo "📊 Current disk usage:"
+          df -h /tmp
+          
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -399,3 +462,31 @@ jobs:
           echo "4. Use fortify-scan.fpr for further analysis in Fortify tools"
           echo ""
           echo "✅ Security scanning workflow completed successfully!"
+          
+      - name: Cleanup on Failure
+        if: failure()
+        run: |
+          echo "🧹 CLEANUP ON FAILURE - Freeing up disk space..."
+          
+          # Remove all temporary Fortify files
+          rm -rf /tmp/fortify-install 2>/dev/null || true
+          rm -rf /tmp/fortify 2>/dev/null || true
+          rm -rf /tmp/fortify-scan-results 2>/dev/null || true
+          
+          # Remove any partial downloads
+          find /tmp -name "Fortify_*" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.tar.gz" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.zip" -type f -delete 2>/dev/null || true
+          
+          # Remove any scan artifacts
+          find /tmp -name "*.fpr" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.html" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.txt" -type f -delete 2>/dev/null || true
+          find /tmp -name "*.json" -type f -delete 2>/dev/null || true
+          
+          # Show final disk usage
+          echo "📊 Final disk usage after cleanup:"
+          df -h /tmp
+          
+          echo "✅ Cleanup on failure completed"
+          echo "💡 Tip: The workflow failed, but disk space has been freed for future runs"
