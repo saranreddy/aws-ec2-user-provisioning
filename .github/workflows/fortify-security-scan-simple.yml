@@ -165,7 +165,7 @@ jobs:
           
           # Download license files
           echo "📥 Downloading Licenses..."
-          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/licenses/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip" ./
+          aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip" ./
           
           echo "✅ All Fortify components downloaded successfully"
           ls -la
@@ -188,11 +188,60 @@ jobs:
           unzip -o "/tmp/fortify-install/Fortify_SSC_Server_${{ env.FORTIFY_VERSION }}.zip"
           unzip -o "/tmp/fortify-install/FortifySoftwareSecurityCenter${{ env.FORTIFY_VERSION }}Licenses.zip"
           
+          # CRITICAL FIX: Execute .run files as installers, not just extract them
+          echo "🚀 Executing Fortify .run installers..."
+          
+          # Find and execute SCA installer
+          SCA_RUN_FILE=$(find /opt/fortify -name "*SCA*${{ env.FORTIFY_VERSION }}*linux*.run" -type f | head -1)
+          if [ -n "$SCA_RUN_FILE" ]; then
+            echo "🔧 Installing SCA from: $SCA_RUN_FILE"
+            chmod +x "$SCA_RUN_FILE"
+            "$SCA_RUN_FILE" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/sca-install.log
+            echo "✅ SCA installation completed"
+          else
+            echo "⚠️ SCA .run file not found, checking extracted contents..."
+          fi
+          
+          # Find and execute Tools installer
+          TOOLS_RUN_FILE=$(find /opt/fortify -name "*Tools*${{ env.FORTIFY_VERSION }}*linux*.run" -type f | head -1)
+          if [ -n "$TOOLS_RUN_FILE" ]; then
+            echo "🔧 Installing Tools from: $TOOLS_RUN_FILE"
+            chmod +x "$TOOLS_RUN_FILE"
+            "$TOOLS_RUN_FILE" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/tools-install.log
+            echo "✅ Tools installation completed"
+          else
+            echo "⚠️ Tools .run file not found, checking extracted contents..."
+          fi
+          
           # Set up environment variables
           echo 'export FORTIFY_HOME=/opt/fortify' >> $GITHUB_ENV
           echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
           
-          echo "✅ Fortify components extracted to /opt/fortify"
+          echo "✅ Fortify components extracted and installed to /opt/fortify"
+          
+      - name: Check Installation Logs
+        if: always()
+        run: |
+          echo "=== Checking Installation Logs ==="
+          
+          if [ -f "/tmp/sca-install.log" ]; then
+            echo "📋 SCA Installation Log:"
+            cat /tmp/sca-install.log
+          else
+            echo "⚠️ SCA installation log not found"
+          fi
+          
+          if [ -f "/tmp/tools-install.log" ]; then
+            echo ""
+            echo "📋 Tools Installation Log:"
+            cat /tmp/tools-install.log
+          else
+            echo "⚠️ Tools installation log not found"
+          fi
+          
+          echo ""
+          echo "📂 Final /opt/fortify directory structure:"
+          find /opt/fortify -type f -name "*.run" 2>/dev/null | head -10 || echo "No .run files found"
           
       - name: Verify Fortify Installation
         run: |
@@ -208,32 +257,102 @@ jobs:
           echo "🔍 Searching for Fortify binaries..."
           
           # Look for sourceanalyzer in common locations
+          echo "🔍 Searching for sourceanalyzer..."
           SOURCEANALYZER_PATH=$(find /opt/fortify -name "sourceanalyzer" -type f 2>/dev/null | head -1)
           if [ -n "$SOURCEANALYZER_PATH" ]; then
             echo "✅ Found sourceanalyzer at: $SOURCEANALYZER_PATH"
             chmod +x "$SOURCEANALYZER_PATH"
             "$SOURCEANALYZER_PATH" -version
           else
-            echo "❌ sourceanalyzer not found"
-            echo "🔍 Available files in /opt/fortify:"
-            find /opt/fortify -type f -name "*sourceanalyzer*" 2>/dev/null || echo "No sourceanalyzer files found"
-            exit 1
+            echo "❌ sourceanalyzer not found in /opt/fortify"
+            echo "🔍 Searching in common Fortify subdirectories..."
+            
+            # Check common Fortify installation subdirectories
+            for subdir in Core Tools bin sdk; do
+              if [ -d "/opt/fortify/$subdir" ]; then
+                echo "📂 Checking /opt/fortify/$subdir:"
+                ls -la "/opt/fortify/$subdir/" 2>/dev/null || echo "  Cannot access $subdir"
+                
+                # Look for sourceanalyzer in this subdirectory
+                SUBDIR_BINARY=$(find "/opt/fortify/$subdir" -name "sourceanalyzer" -type f 2>/dev/null | head -1)
+                if [ -n "$SUBDIR_BINARY" ]; then
+                  echo "✅ Found sourceanalyzer in $subdir: $SUBDIR_BINARY"
+                  SOURCEANALYZER_PATH="$SUBDIR_BINARY"
+                  break
+                fi
+              fi
+            done
+            
+            # If still not found, search more broadly
+            if [ -z "$SOURCEANALYZER_PATH" ]; then
+              echo "🔍 Broad search for sourceanalyzer..."
+              BROAD_SEARCH=$(find /opt/fortify -type f -name "*sourceanalyzer*" 2>/dev/null | head -5)
+              if [ -n "$BROAD_SEARCH" ]; then
+                echo "📋 Found potential sourceanalyzer files:"
+                echo "$BROAD_SEARCH"
+              else
+                echo "❌ No sourceanalyzer files found anywhere in /opt/fortify"
+                echo "🔍 Available files in /opt/fortify:"
+                find /opt/fortify -type f -name "*sourceanalyzer*" 2>/dev/null || echo "No sourceanalyzer files found"
+                exit 1
+              fi
+            fi
           fi
           
           # Look for fortifyclient in common locations
+          echo ""
+          echo "🔍 Searching for fortifyclient..."
           FORTIFYCLIENT_PATH=$(find /opt/fortify -name "fortifyclient" -type f 2>/dev/null | head -1)
           if [ -n "$FORTIFYCLIENT_PATH" ]; then
             echo "✅ Found fortifyclient at: $FORTIFYCLIENT_PATH"
             chmod +x "$FORTIFYCLIENT_PATH"
             "$FORTIFYCLIENT_PATH" -version
           else
-            echo "❌ fortifyclient not found"
-            echo "🔍 Available files in /opt/fortify:"
-            find /opt/fortify -type f -name "*fortifyclient*" 2>/dev/null || echo "No fortifyclient files found"
-            exit 1
+            echo "❌ fortifyclient not found in /opt/fortify"
+            echo "🔍 Searching in common Fortify subdirectories..."
+            
+            # Check common Fortify installation subdirectories
+            for subdir in Core Tools bin sdk; do
+              if [ -d "/opt/fortify/$subdir" ]; then
+                # Look for fortifyclient in this subdirectory
+                SUBDIR_BINARY=$(find "/opt/fortify/$subdir" -name "fortifyclient" -type f 2>/dev/null | head -1)
+                if [ -n "$SUBDIR_BINARY" ]; then
+                  echo "✅ Found fortifyclient in $subdir: $SUBDIR_BINARY"
+                  FORTIFYCLIENT_PATH="$SUBDIR_BINARY"
+                  break
+                fi
+              fi
+            done
+            
+            # If still not found, search more broadly
+            if [ -z "$FORTIFYCLIENT_PATH" ]; then
+              echo "🔍 Broad search for fortifyclient..."
+              BROAD_SEARCH=$(find /opt/fortify -type f -name "*fortifyclient*" 2>/dev/null | head -5)
+              if [ -n "$BROAD_SEARCH" ]; then
+                echo "📋 Found potential fortifyclient files:"
+                echo "$BROAD_SEARCH"
+              else
+                echo "❌ No fortifyclient files found anywhere in /opt/fortify"
+                echo "🔍 Available files in /opt/fortify:"
+                find /opt/fortify -type f -name "*fortifyclient*" 2>/dev/null || echo "No fortifyclient files found"
+                exit 1
+              fi
+            fi
           fi
           
-          echo "✅ Fortify installation verification completed"
+          # Final verification
+          if [ -n "$SOURCEANALYZER_PATH" ] && [ -n "$FORTIFYCLIENT_PATH" ]; then
+            echo ""
+            echo "✅ Fortify installation verification completed successfully!"
+            echo "📋 Binary locations:"
+            echo "  - sourceanalyzer: $SOURCEANALYZER_PATH"
+            echo "  - fortifyclient: $FORTIFYCLIENT_PATH"
+          else
+            echo ""
+            echo "❌ Fortify installation verification failed!"
+            echo "Required binaries not found. Check the installation logs above."
+            exit 1
+          fi
           
       - name: Run Fortify Security Scan
         run: |
