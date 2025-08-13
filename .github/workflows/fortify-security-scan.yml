@@ -369,42 +369,49 @@ jobs:
           echo "✅ Fortify components extracted"
           
           echo ""
-          echo "🔧 REAL SMART SOLUTION: Download and extract actual Fortify components..."
+          echo "🔧 REAL SMART SOLUTION: Find and use actual Fortify components..."
           echo "====================================================================="
           
           # Create the proper bin directory
           mkdir -p /opt/fortify/bin
           
-          # Download the actual Fortify component files from S3
-          echo "📥 Downloading actual Fortify SCA component..."
-          cd /tmp
+          echo "🔍 First, let's see what Fortify components are actually available in S3..."
+          echo "📂 Listing available components in S3:"
+          aws s3 ls "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/" --recursive --human-readable || echo "❌ Failed to list S3 components"
           
-          # Download SCA component (the actual binary package)
-          if aws s3 cp "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" ./ 2>/dev/null; then
-            echo "✅ SCA component downloaded"
-            unzip -o "Fortify_SCA_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" -d /tmp/sca-extract
-            # Look for binaries in the extracted content
-            find /tmp/sca-extract -name "sourceanalyzer" -type f -exec cp {} /opt/fortify/bin/ \;
-            find /tmp/sca-extract -name "fortifyclient" -type f -exec cp {} /opt/fortify/bin/ \;
-            echo "✅ SCA binaries extracted to /opt/fortify/bin"
-          else
-            echo "❌ SCA component not found in S3"
+          echo ""
+          echo "🔍 Now let's check what we already have extracted in /opt/fortify..."
+          echo "📂 Contents of /opt/fortify:"
+          ls -la /opt/fortify/
+          
+          echo ""
+          echo "🔍 Looking for any Fortify component files that might contain binaries..."
+          cd /opt/fortify
+          # Look for any files that might contain Fortify binaries
+          echo "📋 Searching for potential Fortify component files:"
+          find . -name "*.zip" -o -name "*.tar" -o -name "*.tar.gz" | head -10
+          
+          echo ""
+          echo "🔍 Let's try to extract the ScanCentral components to see if they contain binaries..."
+          if [ -f "Fortify_ScanCentral_Controller_24.2.0_x64.zip" ]; then
+            echo "📦 Extracting ScanCentral Controller to look for binaries..."
+            unzip -o "Fortify_ScanCentral_Controller_24.2.0_x64.zip" -d /tmp/scancentral-extract
+            find /tmp/scancentral-extract -name "sourceanalyzer" -type f -exec cp {} /opt/fortify/bin/ \;
+            find /tmp/scancentral-extract -name "fortifyclient" -type f -exec cp {} /opt/fortify/bin/ \;
+            echo "✅ ScanCentral binaries extracted (if any found)"
           fi
           
-          echo "📥 Downloading actual Fortify Tools component..."
-          # Download Tools component
-          if aws s3 cp "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" ./ 2>/dev/null; then
-            echo "✅ Tools component downloaded"
-            unzip -o "Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux_x64.zip" -d /tmp/tools-extract
-            # Look for additional binaries
-            find /tmp/tools-extract -name "*.exe" -o -name "*" -type f -executable | head -5 | xargs -I {} cp {} /opt/fortify/bin/ 2>/dev/null || true
-            echo "✅ Tools binaries extracted to /opt/fortify/bin"
-          else
-            echo "❌ Tools component not found in S3"
-          fi
+          echo ""
+          echo "🔍 Let's also check if there are any .run files that we can actually execute..."
+          find . -name "*.run" -type f | head -5
           
-          # Set proper permissions
-          chmod +x /opt/fortify/bin/*
+          # Set proper permissions if we found any binaries
+          if [ "$(ls -A /opt/fortify/bin/)" ]; then
+            chmod +x /opt/fortify/bin/*
+            echo "✅ Permissions set for binaries in /opt/fortify/bin"
+          else
+            echo "⚠️ No binaries found yet, will continue searching..."
+          fi
           
           echo ""
           echo "📁 FINAL INSTALLATION VERIFICATION:"
