@@ -295,22 +295,49 @@ jobs:
           echo "🔧 Installing Fortify SCA..."
           if [ -f "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
             echo "🚀 Executing Fortify SCA installer..."
+            echo "📁 Current directory: $(pwd)"
+            echo "📋 File details:"
+            ls -la "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            
             chmod +x "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            echo "🔒 File permissions updated"
+            
+            echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
             "/tmp/fortify-analysis/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            
+            echo "📁 Checking installation directory after SCA install:"
+            ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
+            ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
+            
             echo "✅ Fortify SCA installed successfully"
           else
             echo "❌ Fortify SCA .run file not found"
+            echo "📁 Available files in analysis directory:"
+            ls -la /tmp/fortify-analysis/
             exit 1
           fi
           
           echo "🔧 Installing Fortify Tools..."
           if [ -f "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
             echo "🚀 Executing Fortify Tools installer..."
+            echo "📋 File details:"
+            ls -la "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            
             chmod +x "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run"
+            echo "🔒 File permissions updated"
+            
+            echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
             "/tmp/fortify-analysis/Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
+            
+            echo "📁 Checking installation directory after Tools install:"
+            ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
+            ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
+            
             echo "✅ Fortify Tools installed successfully"
           else
             echo "❌ Fortify Tools .run file not found"
+            echo "📁 Available files in analysis directory:"
+            ls -la /tmp/fortify-analysis/
             exit 1
           fi
           
@@ -328,7 +355,28 @@ jobs:
           echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
           
           echo "✅ Fortify installation completed"
-          ls -la /opt/fortify
+          
+          echo ""
+          echo "📁 FINAL INSTALLATION VERIFICATION:"
+          echo "=================================="
+          echo "📂 /opt/fortify directory contents:"
+          ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
+          
+          echo ""
+          echo "📂 /opt/fortify/bin directory contents:"
+          ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
+          
+          echo ""
+          echo "🔍 Searching for Fortify binaries in entire /opt/fortify tree:"
+          find /opt/fortify -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found"
+          find /opt/fortify -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found"
+          
+          echo ""
+          echo "📊 Installation summary:"
+          echo "- Total files in /opt/fortify: $(find /opt/fortify -type f 2>/dev/null | wc -l)"
+          echo "- Total directories in /opt/fortify: $(find /opt/fortify -type d 2>/dev/null | wc -l)"
+          echo "- sourceanalyzer found: $(find /opt/fortify -name 'sourceanalyzer' -type f 2>/dev/null | wc -l)"
+          echo "- fortifyclient found: $(find /opt/fortify -name 'fortifyclient' -type f 2>/dev/null | wc -l)"
           
       - name: Verify Fortify Installation
         run: |
