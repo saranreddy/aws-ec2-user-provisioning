@@ -346,7 +346,7 @@ jobs:
           
           # Generate FPR report
           echo "📊 Generating FPR report..."
-          sourceanalyzer -b fortify-scan -f $SCAN_DIR/fortify-scan.fpr
+          sourceanalyzer -b fortify-scan -scan -f $SCAN_DIR/fortify-scan.fpr
           
           if [ $? -eq 0 ]; then
             echo "✅ FPR report generated: $SCAN_DIR/fortify-scan.fpr"
@@ -412,7 +412,7 @@ jobs:
           
           # Generate FPR report
           echo "📊 Generating FPR report..."
-          sourceanalyzer -b fortify-deps -f $SCAN_DIR/fortify-deps.fpr
+          sourceanalyzer -b fortify-deps -scan -f $SCAN_DIR/fortify-deps.fpr
           
           if [ $? -eq 0 ]; then
             echo "✅ FPR report generated: $SCAN_DIR/fortify-deps.fpr"
@@ -468,7 +468,7 @@ jobs:
           
           # Generate FPR report
           echo "📊 Generating FPR report..."
-          sourceanalyzer -b fortify-full -f $SCAN_DIR/fortify-full.fpr
+          sourceanalyzer -b fortify-full -scan -f $SCAN_DIR/fortify-full.fpr
           
           if [ $? -eq 0 ]; then
             echo "✅ FPR report generated: $SCAN_DIR/fortify-full.fpr"
