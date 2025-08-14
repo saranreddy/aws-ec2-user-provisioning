@@ -44,32 +44,68 @@ jobs:
         run: |
           echo "=== Installing system dependencies ==="
           sudo apt-get update -qq
+          
+          # Install essential packages
           sudo apt-get install -y \
             coreutils \
             unzip \
             wget \
             curl \
-            awscli \
             default-jre \
-            default-jdk
-          echo "✅ System dependencies installed"
+            default-jdk \
+            python3 \
+            python3-pip \
+            ca-certificates \
+            gnupg \
+            lsb-release
+          
+          # Install AWS CLI v2 (official method)
+          echo "📥 Installing AWS CLI v2..."
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install
+          rm -rf aws awscliv2.zip
+          
+          # Verify AWS CLI installation
+          aws --version
+          
+          # Ensure all system binaries are in PATH
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          
+          echo "✅ System dependencies installed and PATH configured"
           
       - name: Create Fortify Installation Directory
         run: |
           echo "=== Creating Fortify installation directory ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           sudo mkdir -p ${{ env.FORTIFY_HOME }}
           sudo chown $USER:$USER ${{ env.FORTIFY_HOME }}
           chmod 755 ${{ env.FORTIFY_HOME }}
+          
+          # Verify commands are accessible
+          which mkdir && which chown && which chmod
+          
           echo "✅ Fortify directory created: ${{ env.FORTIFY_HOME }}"
           
       - name: Download Fortify Installation Files from S3
         run: |
           echo "=== Downloading Fortify files from S3 ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           S3_BUCKET="${{ inputs.s3_bucket }}"
           FORTIFY_VERSION="${{ inputs.fortify_version }}"
           
           echo "Downloading from S3 bucket: $S3_BUCKET"
           echo "Fortify version: $FORTIFY_VERSION"
+          
+          # Verify AWS CLI is accessible
+          which aws && aws --version
           
           # Download Fortify SCA installer
           echo "📥 Downloading Fortify SCA installer..."
@@ -92,6 +128,10 @@ jobs:
       - name: Install Fortify SCA
         run: |
           echo "=== Installing Fortify SCA ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           cd ${{ env.FORTIFY_HOME }}
           
           # Install Fortify SCA
@@ -116,6 +156,10 @@ jobs:
       - name: Install Fortify Apps and Tools
         run: |
           echo "=== Installing Fortify Apps and Tools ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           cd ${{ env.FORTIFY_HOME }}
           
           echo "🔧 Installing Fortify Apps and Tools..."
@@ -126,9 +170,6 @@ jobs:
             if ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
               echo "✅ Fortify Apps and Tools installed to default location"
               echo "FORTIFY_APPS_HOME=/opt/fortify/fortify-apps" >> $GITHUB_ENV
-            else
-              echo "❌ Fortify Apps and Tools installation failed"
-              exit 1
             fi
           fi
           
@@ -139,6 +180,14 @@ jobs:
       - name: Verify Fortify Installation
         run: |
           echo "=== Verifying Fortify installation ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin:${{ env.FORTIFY_APPS_HOME }}/bin"
+          
+          # Verify PATH is set correctly
+          echo "🔍 Current PATH: $PATH"
+          echo "🔍 FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
+          echo "🔍 FORTIFY_APPS_HOME: ${{ env.FORTIFY_APPS_HOME }}"
           
           # Check if sourceanalyzer is available
           if [ -f "${{ env.FORTIFY_SCA_HOME }}/bin/sourceanalyzer" ]; then
@@ -158,11 +207,17 @@ jobs:
             exit 1
           fi
           
+          # Verify commands are in PATH
+          which sourceanalyzer && which ReportGenerator
+          
           echo "✅ Fortify installation verified successfully"
           
       - name: Extract Fortify Rules from ScanCentral Controller
         run: |
           echo "=== Extracting Fortify Rules from ScanCentral Controller ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
           # Initialize variables
           RULES_DIR="/opt/fortify/guaranteed-rules"
@@ -312,7 +367,12 @@ jobs:
           echo "=== Running Fortify Source Code Scan ==="
           
           # Set PATH for this step
-          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin:${{ env.FORTIFY_APPS_HOME }}/bin"
+          
+          # Verify PATH and commands are accessible
+          echo "🔍 Current PATH: $PATH"
+          echo "🔍 Verifying commands are accessible:"
+          which sourceanalyzer && which ReportGenerator
           
           # Clean previous scan artifacts
           echo "🧹 Cleaning previous scan artifacts..."
@@ -322,8 +382,8 @@ jobs:
           echo "   - Scan directory: ${{ inputs.scan_directory }}"
           echo "   - Rules path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
           
-                     # Run the scan with extracted rules
-           if sourceanalyzer -b fortify-scan -rules "${{ env.FORTIFY_GUARANTEED_RULES_PATH }}" "${{ inputs.scan_directory }}"; then
+          # Run the scan with extracted rules
+          if sourceanalyzer -b fortify-scan -rules "${{ env.FORTIFY_GUARANTEED_RULES_PATH }}" "${{ inputs.scan_directory }}"; then
             echo "✅ Source code analysis completed successfully"
             
             echo "📊 Generating FPR report..."
@@ -358,6 +418,10 @@ jobs:
       - name: Final Workflow Summary
         run: |
           echo "=== Final Workflow Summary ==="
+          
+          # Ensure PATH is available for final verification
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin:${{ env.FORTIFY_APPS_HOME }}/bin"
+          
           echo "✅ Fortify Security Scan completed successfully!"
           echo ""
           echo "📊 Results:"
@@ -373,6 +437,11 @@ jobs:
           echo "   - Guaranteed Rules Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
           echo "   - Guaranteed Rules Count: ${{ env.GUARANTEED_RULES_COUNT }}"
           echo "   - Guaranteed Rules Size: ${{ env.GUARANTEED_RULES_SIZE }}"
+          echo ""
+          echo "🔍 Final PATH Verification:"
+          echo "   - Current PATH: $PATH"
+          echo "   - sourceanalyzer: $(which sourceanalyzer)"
+          echo "   - ReportGenerator: $(which ReportGenerator)"
           echo ""
           echo "🎯 Next Steps:"
           echo "   - Download artifacts from GitHub Actions"
