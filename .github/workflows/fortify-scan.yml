@@ -80,9 +80,19 @@ jobs:
       - name: Install System Dependencies
         run: |
           echo "=== Installing System Dependencies ==="
+          
+          # Update package lists first
+          sudo apt-get update
+          
+          # Install Java and essential system utilities
           sudo apt-get install -y \
             default-jdk \
-            unzip
+            unzip \
+            coreutils \
+            findutils \
+            grep \
+            sed \
+            bash
           
           echo "✅ System dependencies installed"
           
