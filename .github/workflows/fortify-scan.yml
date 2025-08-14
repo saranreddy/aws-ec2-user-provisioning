@@ -100,6 +100,23 @@ jobs:
           
           echo "✅ System dependencies installed and optimized"
           
+      - name: Setup System Environment
+        run: |
+          echo "=== Setting up System Environment ==="
+          
+          # Ensure basic system commands are in PATH
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          
+          # Verify basic commands are available
+          echo "🔍 Verifying basic system commands..."
+          which cp && echo "✅ cp command available"
+          which ls && echo "✅ ls command available"
+          which mkdir && echo "✅ mkdir command available"
+          which chmod && echo "✅ chmod command available"
+          
+          echo "✅ System environment configured"
+          
       - name: Create Fortify Installation Directory
         run: |
           echo "=== Creating Fortify Installation Directory ==="
@@ -237,24 +254,29 @@ jobs:
         run: |
           echo "=== Configuring Fortify License ==="
           
+          # Ensure basic commands are available
+          echo "🔍 Debug: Checking system commands..."
+          which cp || echo "cp not found in PATH"
+          echo "PATH: $PATH"
+          
           # Copy license to multiple possible Fortify locations
           echo "📋 Copying license to multiple Fortify locations..."
           
           # Location 1: SCA bin directory
-          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
+          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
           
           # Location 2: SCA root directory
-          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
+          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
           
           # Location 3: System-wide Fortify location (avoid self-copying)
           if [ "${{ env.FORTIFY_HOME }}" != "/opt/fortify" ]; then
-            sudo cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
+            sudo /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
           else
             echo "⚠️  Skipping system-wide copy (same location)"
           fi
           
           # Location 4: User home directory (Fortify sometimes looks here)
-          cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
+          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
           
           # Set multiple license path environment variables
           export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
