@@ -77,14 +77,34 @@ jobs:
           aws sts get-caller-identity
           echo "✅ AWS credentials verified"
           
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+          
       - name: Install System Dependencies
         run: |
           echo "=== Installing System Dependencies ==="
-          sudo apt-get install -y \
-            default-jdk \
-            unzip
           
-          echo "✅ System dependencies installed"
+          # Java is already installed by actions/setup-java
+          echo "✅ Java already installed via actions/setup-java, checking version..."
+          java -version
+          
+          # Install only essential utilities
+          echo "🔧 Installing essential utilities..."
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            unzip \
+            ca-certificates \
+            curl
+          
+          # Clean up package cache to save space
+          echo "🧹 Cleaning up package cache..."
+          sudo apt-get clean
+          
+          echo "✅ System dependencies installed and optimized"
           
       - name: Create Fortify Installation Directory
         run: |
