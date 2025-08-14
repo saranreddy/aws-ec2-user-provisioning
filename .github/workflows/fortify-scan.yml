@@ -349,6 +349,7 @@ jobs:
           RULES_SIZE=0
           SCANCENTRAL_DOWNLOADED="false"
           SCANCENTRAL_EXTRACTED="false"
+          ACTUAL_RULES_FOUND="false"
           
           # S3 Configuration
           S3_BUCKET="aws-ec2-user-provisioning-security-files"
@@ -455,6 +456,9 @@ jobs:
                   echo "✅ Successfully extracted and reorganized $RULES_COUNT Fortify rule files"
                   echo "   - Total rules size: $RULES_SIZE bytes"
                   echo "   - Fortify-compatible location: $RULES_DIR"
+                  
+                  # Mark that we found actual rules
+                  ACTUAL_RULES_FOUND="true"
                 else
                   echo "⚠️  No rule files found in extracted contents"
                 fi
@@ -475,6 +479,12 @@ jobs:
           
           # Fallback to deep search if ScanCentral Controller failed
           if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
+            echo ""
+            echo "🔄 S3 Download Failed - Using Fallback Strategy"
+            echo "   - ScanCentral Controller download failed (likely S3 permissions issue)"
+            echo "   - Falling back to search Fortify installation for embedded rules"
+            echo "   - This ensures the workflow continues even without S3 access"
+            echo ""
             echo ""
             echo "🔄 Fallback: Deep Fortify Rules Search in Installation..."
             echo "🔍 Searching for actual Fortify rules in installation..."
