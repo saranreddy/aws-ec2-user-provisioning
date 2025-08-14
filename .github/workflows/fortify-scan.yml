@@ -942,26 +942,77 @@ jobs:
           echo "🧹 Cleaning previous scan artifacts..."
           sourceanalyzer -b fortify-scan -clean
           
-          # Hybrid Rules Strategy with Guaranteed Rules Access
+          # True Progressive Fallback Strategy
           echo ""
-          echo "🔧 === Hybrid Rules Strategy ==="
-          echo "Strategy: Use custom rules if available, fall back to guaranteed rules for success"
+          echo "🔧 === True Progressive Fallback Strategy ==="
+          echo "Strategy: Try custom rules first, immediately fall back to guaranteed rules if ANY step fails"
           
           # Initialize tracking variables
           CUSTOM_SCAN_SUCCESS="false"
+          CUSTOM_REPORT_SUCCESS="false"
           GUARANTEED_SCAN_SUCCESS="false"
+          GUARANTEED_REPORT_SUCCESS="false"
           CUSTOM_SCAN_ERROR=""
+          CUSTOM_REPORT_ERROR=""
           FINAL_RULES_PATH=""
+          FALLBACK_TRIGGERED="false"
           
-          # Determine which rules to use
+          # Phase 1: Try Custom Rules (if available and valid)
           if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && [ "${{ env.CUSTOM_RULES_VALID }}" = "true" ] && [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
-            echo "🎯 Using VALIDATED CUSTOM RULES"
+            echo "🎯 Phase 1: Attempting Custom Rules (Complete Process)"
             echo "   - Source: ${{ env.RULES_SOURCE }}"
             echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
             echo "   - Count: ${{ env.RULES_COUNT }} rules files"
             echo "   - Validation: PASSED"
-            FINAL_RULES_PATH="${{ env.FORTIFY_RULES_PATH }}"
-            RULES_USED="custom_validated"
+            echo "   - Note: Will fall back to guaranteed rules if ANY step fails"
+            
+            # Clean previous scan artifacts
+            sourceanalyzer -b fortify-scan-custom -clean 2>/dev/null || true
+            
+            # Step 1: Try custom rules scan
+            echo ""
+            echo "🔍 Step 1: Source code analysis with custom rules..."
+            if sourceanalyzer -b fortify-scan-custom \
+              -source 1.8 \
+              -cp "**/*.jar" \
+              -cp "**/*.class" \
+              -cp "**/*.py" \
+              -cp "**/*.js" \
+              -cp "**/*.ts" \
+              -cp "**/*.tf" \
+              -cp "**/*.yml" \
+              -cp "**/*.yaml" \
+              -cp "**/*.sh" \
+              -cp "**/*.py" \
+              -rules "${{ env.FORTIFY_RULES_PATH }}" \
+              .; then
+              
+              echo "✅ Custom rules scan completed successfully"
+              CUSTOM_SCAN_SUCCESS="true"
+              
+              # Step 2: Try custom rules report generation
+              echo ""
+              echo "📊 Step 2: Testing FPR report generation with custom rules..."
+              if sourceanalyzer -b fortify-scan-custom -scan -f /tmp/test-custom.fpr 2>/dev/null; then
+                echo "✅ Custom rules report generation test successful"
+                CUSTOM_REPORT_SUCCESS="true"
+                FINAL_RULES_PATH="${{ env.FORTIFY_RULES_PATH }}"
+                RULES_USED="custom_complete_success"
+                
+              else
+                echo "❌ Custom rules report generation test failed - triggering fallback"
+                CUSTOM_REPORT_ERROR="Report generation failed"
+                FALLBACK_TRIGGERED="true"
+              fi
+              
+            else
+              echo "❌ Custom rules scan failed - triggering fallback"
+              CUSTOM_SCAN_ERROR="Scan execution failed"
+              FALLBACK_TRIGGERED="true"
+            fi
+            
+            # Clean up test artifacts
+            rm -f /tmp/test-custom.fpr 2>/dev/null || true
             
           else
             echo "🎯 Using GUARANTEED RULES (Built-in + Extracted)"
@@ -979,57 +1030,86 @@ jobs:
               echo "   - Reason: Custom rules not properly configured"
               RULES_USED="guaranteed_primary"
             fi
+            FALLBACK_TRIGGERED="true"
           fi
           
-          # Clean previous scan artifacts
-          sourceanalyzer -b fortify-scan -clean 2>/dev/null || true
-          
-          # Run scan with determined rules
-          echo ""
-          echo "🔍 Starting source code analysis with rules: $FINAL_RULES_PATH"
-          
-          if sourceanalyzer -b fortify-scan \
-            -source 1.8 \
-            -cp "**/*.jar" \
-            -cp "**/*.class" \
-            -cp "**/*.py" \
-            -cp "**/*.js" \
-            -cp "**/*.ts" \
-            -cp "**/*.tf" \
-            -cp "**/*.yml" \
-            -cp "**/*.yaml" \
-            -cp "**/*.sh" \
-            -cp "**/*.py" \
-            -rules "$FINAL_RULES_PATH" \
-            .; then
+          # Phase 2: Fallback to Guaranteed Rules (if needed)
+          if [ "$FALLBACK_TRIGGERED" = "true" ] || [ "$CUSTOM_REPORT_SUCCESS" = "false" ]; then
+            echo ""
+            echo "🔄 Phase 2: FALLBACK to Guaranteed Rules"
+            echo "   - Reason: Custom rules failed or fallback triggered"
+            echo "   - Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+            echo "   - Note: Guaranteed rules for complete success"
             
-            echo "✅ Source code analysis completed successfully"
-            GUARANTEED_SCAN_SUCCESS="true"
+            # Clean previous scan artifacts
+            sourceanalyzer -b fortify-scan -clean 2>/dev/null || true
             
-          else
-            echo "❌ Source code analysis failed (this should not happen with guaranteed rules)"
-            exit 1
+            # Run scan with guaranteed rules
+            echo ""
+            echo "🔍 Starting source code analysis with guaranteed rules: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+            
+            if sourceanalyzer -b fortify-scan \
+              -source 1.8 \
+              -cp "**/*.jar" \
+              -cp "**/*.class" \
+              -cp "**/*.py" \
+              -cp "**/*.js" \
+              -cp "**/*.ts" \
+              -cp "**/*.tf" \
+              -cp "**/*.yml" \
+              -cp "**/*.yaml" \
+              -cp "**/*.sh" \
+              -cp "**/*.py" \
+              -rules "${{ env.FORTIFY_GUARANTEED_RULES_PATH }}" \
+              .; then
+              
+              echo "✅ Guaranteed rules scan completed successfully"
+              GUARANTEED_SCAN_SUCCESS="true"
+              FINAL_RULES_PATH="${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+              
+              # Determine final rules usage
+              if [ "$CUSTOM_SCAN_SUCCESS" = "true" ]; then
+                RULES_USED="custom_scan_guaranteed_report"
+              else
+                RULES_USED="guaranteed_complete"
+              fi
+              
+            else
+              echo "❌ Guaranteed rules scan failed (this should not happen)"
+              exit 1
+            fi
+            
           fi
+          
+          # Scan execution is now handled in the fallback phases above
           
           # Export scan results for downstream steps
           echo "CUSTOM_SCAN_SUCCESS=$CUSTOM_SCAN_SUCCESS" >> $GITHUB_ENV
+          echo "CUSTOM_REPORT_SUCCESS=$CUSTOM_REPORT_SUCCESS" >> $GITHUB_ENV
           echo "GUARANTEED_SCAN_SUCCESS=$GUARANTEED_SCAN_SUCCESS" >> $GITHUB_ENV
+          echo "GUARANTEED_REPORT_SUCCESS=$GUARANTEED_REPORT_SUCCESS" >> $GITHUB_ENV
           echo "CUSTOM_SCAN_ERROR=$CUSTOM_SCAN_ERROR" >> $GITHUB_ENV
+          echo "CUSTOM_REPORT_ERROR=$CUSTOM_REPORT_ERROR" >> $GITHUB_ENV
           echo "FINAL_RULES_PATH=$FINAL_RULES_PATH" >> $GITHUB_ENV
+          echo "FALLBACK_TRIGGERED=$FALLBACK_TRIGGERED" >> $GITHUB_ENV
           echo "RULES_USED=$RULES_USED" >> $GITHUB_ENV
           
-          if [ $? -eq 0 ]; then
-            echo "✅ Source code analysis completed successfully"
-          else
-            echo "❌ Source code analysis failed"
-            exit 1
-          fi
+          # Success status is now tracked in the fallback phases above
           
           # Generate FPR report using the same rules that were used for scanning
           echo "📊 Generating FPR report..."
           echo "Note: Using rules from: ${{ env.FINAL_RULES_PATH }}"
           
-          sourceanalyzer -b fortify-scan -scan -f $SCAN_DIR/fortify-scan.fpr
+          # Determine which build ID to use based on rules used
+          if [ "${{ env.RULES_USED }}" = "custom_complete_success" ]; then
+            BUILD_ID="fortify-scan-custom"
+            echo "📊 Using custom rules build ID: $BUILD_ID"
+          else
+            BUILD_ID="fortify-scan"
+            echo "📊 Using guaranteed rules build ID: $BUILD_ID"
+          fi
+          
+          sourceanalyzer -b $BUILD_ID -scan -f $SCAN_DIR/fortify-scan.fpr
           
           if [ $? -eq 0 ]; then
             echo "✅ FPR report generated: $SCAN_DIR/fortify-scan.fpr"
@@ -1051,46 +1131,61 @@ jobs:
           
           echo "✅ Source code scan completed successfully"
           
-          # Final scan summary with hybrid rules strategy results
+          # Final scan summary with progressive fallback strategy results
           echo ""
           echo "📊 === Source Code Scan Summary ==="
           echo "✅ Scan Status: COMPLETED SUCCESSFULLY"
           
-          # Show hybrid rules strategy results
-          echo "🔧 === Hybrid Rules Strategy Results ==="
+          # Show progressive fallback strategy results
+          echo "🔧 === Progressive Fallback Strategy Results ==="
           
           # Rules Usage Summary
           case "${{ env.RULES_USED }}" in
-            "custom_validated")
-              echo "🎯 Rules Used: VALIDATED CUSTOM RULES"
+            "custom_complete_success")
+              echo "🎯 Rules Used: CUSTOM RULES (Complete Success)"
               echo "   - Source: ${{ env.RULES_SOURCE }}"
               echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
               echo "   - Count: ${{ env.RULES_COUNT }} rules files"
               echo "   - Validation: PASSED"
               echo "   - Note: Custom rules used for both scanning and reporting"
+              echo "   - Status: No fallback needed - complete success"
               ;;
-            "guaranteed_primary")
-              echo "🎯 Rules Used: GUARANTEED RULES (Primary)"
-              echo "   - Path: ${{ env.FINAL_RULES_PATH }}"
-              echo "   - Note: Guaranteed rules used for both scanning and reporting"
-              echo "   - Status: Always accessible for Fortify operations"
+            "custom_scan_guaranteed_report")
+              echo "🎯 Rules Used: HYBRID APPROACH (Custom Scan + Guaranteed Report)"
+              echo "   - Custom Scan: ${{ env.FORTIFY_RULES_PATH }}"
+              echo "   - Guaranteed Report: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+              echo "   - Note: Custom rules failed during report generation, fell back to guaranteed rules"
+              echo "   - Status: Partial fallback - scan success, report fallback"
               ;;
-            "guaranteed_fallback")
-              echo "🎯 Rules Used: GUARANTEED RULES (Fallback)"
-              echo "   - Path: ${{ env.FINAL_RULES_PATH }}"
-              echo "   - Reason: Custom rules failed validation, using guaranteed rules"
+            "guaranteed_complete")
+              echo "🎯 Rules Used: GUARANTEED RULES (Complete Fallback)"
+              echo "   - Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+              echo "   - Reason: Custom rules failed during scan or report generation"
               echo "   - Note: Guaranteed rules used for both scanning and reporting"
+              echo "   - Status: Complete fallback - guaranteed success"
               ;;
             *)
               echo "🎯 Rules Used: UNKNOWN (check logs for details)"
               ;;
           esac
           
-          # Scan Results
-          if [ "${{ env.GUARANTEED_SCAN_SUCCESS }}" = "true" ]; then
-            echo "✅ Scan Execution: SUCCESS"
-            echo "   - Rules Path: ${{ env.FINAL_RULES_PATH }}"
-            echo "   - Both scanning and reporting completed successfully"
+          # Scan Results with Progressive Fallback Details
+          if [ "${{ env.CUSTOM_SCAN_SUCCESS }}" = "true" ] && [ "${{ env.CUSTOM_REPORT_SUCCESS }}" = "true" ]; then
+            echo "✅ Scan Execution: CUSTOM RULES SUCCESS"
+            echo "   - Rules Path: ${{ env.FORTIFY_RULES_PATH }}"
+            echo "   - Both scanning and reporting completed with custom rules"
+            echo "   - Status: No fallback needed"
+          elif [ "${{ env.CUSTOM_SCAN_SUCCESS }}" = "true" ] && [ "${{ env.CUSTOM_REPORT_SUCCESS }}" = "false" ]; then
+            echo "✅ Scan Execution: PARTIAL SUCCESS (Fallback Required)"
+            echo "   - Custom Scan: SUCCESS with ${{ env.FORTIFY_RULES_PATH }}"
+            echo "   - Custom Report: FAILED - triggered fallback to guaranteed rules"
+            echo "   - Final Report: SUCCESS with ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+            echo "   - Status: Partial fallback - scan success, report fallback"
+          elif [ "${{ env.GUARANTEED_SCAN_SUCCESS }}" = "true" ]; then
+            echo "✅ Scan Execution: GUARANTEED RULES SUCCESS"
+            echo "   - Rules Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+            echo "   - Both scanning and reporting completed with guaranteed rules"
+            echo "   - Status: Complete fallback - guaranteed success"
           else
             echo "❌ Scan Execution: FAILED (this should not happen with guaranteed rules)"
           fi
@@ -1291,13 +1386,16 @@ jobs:
           echo "   - Rules Validation: ${{ env.RULES_VALIDATION_RESULT }}"
           
           echo ""
-          echo "🔧 === Hybrid Rules Strategy Summary ==="
+          echo "🔧 === Progressive Fallback Strategy Summary ==="
           echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
           echo "   - Custom Rules Valid: ${{ env.CUSTOM_RULES_VALID }}"
+          echo "   - Custom Scan Success: ${{ env.CUSTOM_SCAN_SUCCESS }}"
+          echo "   - Custom Report Success: ${{ env.CUSTOM_REPORT_SUCCESS }}"
+          echo "   - Fallback Triggered: ${{ env.FALLBACK_TRIGGERED }}"
           echo "   - Guaranteed Rules Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
           echo "   - Final Rules Used: ${{ env.RULES_USED }}"
           echo "   - Rules Always Accessible: ${{ env.RULES_ALWAYS_AVAILABLE }}"
-          echo "   - Reports Generated: From same rules used for scanning (guaranteed success)"
+          echo "   - Progressive Fallback: Custom rules first, immediate fallback to guaranteed rules if ANY step fails"
           
           echo ""
           echo "📊 Scan Results:"
