@@ -358,6 +358,10 @@ jobs:
           S3_URI="s3://$S3_BUCKET/$S3_PATH/$SCANCENTRAL_FILE"
           TEMP_DIR="/tmp/fortify-rules-extraction"
           
+          # Create rules directory
+          sudo mkdir -p $RULES_DIR
+          sudo chown $USER:$USER $RULES_DIR
+          
           # Create temporary directory
           mkdir -p $TEMP_DIR
           cd $TEMP_DIR
@@ -389,6 +393,8 @@ jobs:
             fi
           else
             echo "❌ ScanCentral Controller download failed"
+            echo "   - Error: AWS S3 download command failed"
+            echo "   - Check: S3 bucket access, file existence, AWS credentials"
             SCANCENTRAL_DOWNLOADED="false"
           fi
           
@@ -396,6 +402,12 @@ jobs:
           if [ "$SCANCENTRAL_DOWNLOADED" = "true" ]; then
             echo ""
             echo "📦 Step 2: Extracting ScanCentral Controller ZIP file..."
+            
+            # Check if unzip is available
+            if ! command -v unzip &> /dev/null; then
+              echo "⚠️  unzip command not found, installing..."
+              sudo apt-get update -qq && sudo apt-get install -y unzip
+            fi
             
             # Extract the ZIP file completely
             if unzip -q "$TEMP_DIR/$SCANCENTRAL_FILE" -d "$RULES_DIR/"; then
