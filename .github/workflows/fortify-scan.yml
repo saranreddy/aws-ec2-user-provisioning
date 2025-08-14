@@ -214,6 +214,13 @@ jobs:
           
           echo "✅ Fortify license configured in multiple locations"
           
+          echo ""
+          echo "🔍 License file analysis:"
+          echo "File: ${{ env.FORTIFY_HOME }}/fortify.license"
+          echo "Size: $(ls -lh ${{ env.FORTIFY_HOME }}/fortify.license | awk '{print $5}')"
+          echo "Type: $(file ${{ env.FORTIFY_HOME }}/fortify.license)"
+          echo "Permissions: $(ls -la ${{ env.FORTIFY_HOME }}/fortify.license | awk '{print $1, $3, $4}')"
+          
       - name: Verify Fortify Installation
         run: |
           echo "=== Verifying Fortify Installation ==="
@@ -232,24 +239,67 @@ jobs:
           
           echo "✅ Fortify SCA verified successfully"
           
-      - name: Validate Fortify License
+      - name: Debug Fortify License Issues
         if: inputs.scan_type == 'source-code'
         run: |
-          echo "=== Validating Fortify License ==="
+          echo "=== Debugging Fortify License Issues ==="
           
           # Add Fortify to PATH
           export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
           
-          # Test license with Fortify
-          echo "🧪 Testing license with Fortify..."
-          if sourceanalyzer -license-check; then
-            echo "✅ License validation successful"
+          echo "🔍 Current working directory: $(pwd)"
+          echo "🔍 FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
+          echo "🔍 FORTIFY_HOME: ${{ env.FORTIFY_HOME }}"
+          
+          echo ""
+          echo "📁 License files in various locations:"
+          echo "--- /opt/fortify/ ---"
+          find /opt/fortify -name "*license*" -o -name "*lic*" -o -name "*ot-package*" 2>/dev/null || echo "No files found"
+          
+          echo ""
+          echo "--- SCA bin directory ---"
+          ls -la ${{ env.FORTIFY_SCA_HOME }}/bin/*license* ${{ env.FORTIFY_SCA_HOME }}/bin/*lic* 2>/dev/null || echo "No files found"
+          
+          echo ""
+          echo "--- SCA root directory ---"
+          ls -la ${{ env.FORTIFY_SCA_HOME }}/*license* ${{ env.FORTIFY_SCA_HOME }}/*lic* 2>/dev/null || echo "No files found"
+          
+          echo ""
+          echo "--- User home ---"
+          ls -la ~/*license* ~/*lic* ~/*ot-package* 2>/dev/null || echo "No files found"
+          
+          echo ""
+          echo "🔍 Environment variables:"
+          env | grep -i fortify || echo "No Fortify environment variables found"
+          
+          echo ""
+          echo "🧪 Testing Fortify license commands:"
+          echo "--- License check ---"
+          sourceanalyzer -license-check 2>&1 || echo "License check failed"
+          
+          echo ""
+          echo "--- License info ---"
+          sourceanalyzer -license-info 2>&1 || echo "License info failed"
+          
+          echo ""
+          echo "--- Version with license ---"
+          sourceanalyzer -version 2>&1 || echo "Version check failed"
+          
+          echo ""
+          echo "📄 License file content analysis:"
+          if [ -f "${{ env.FORTIFY_HOME }}/fortify.license" ]; then
+            echo "File exists: ${{ env.FORTIFY_HOME }}/fortify.license"
+            echo "File size: $(ls -lh ${{ env.FORTIFY_HOME }}/fortify.license | awk '{print $5}')"
+            echo "File type: $(file ${{ env.FORTIFY_HOME }}/fortify.license)"
+            echo "First 10 lines:"
+            head -10 ${{ env.FORTIFY_HOME }}/fortify.license || echo "Could not read file"
           else
-            echo "⚠️  License validation failed, but continuing..."
-            echo "🔍 Available license files:"
-            find /opt -name "*license*" 2>/dev/null || echo "No license files found in /opt"
-            find ~ -name "*license*" 2>/dev/null || echo "No license files found in home"
+            echo "❌ License file not found at ${{ env.FORTIFY_HOME }}/fortify.license"
           fi
+          
+          echo ""
+          echo "🔍 Searching for any Fortify license files:"
+          find /opt -name "*fortify*" -o -name "*license*" -o -name "*lic*" 2>/dev/null | head -20
           
       - name: Run Fortify Source Code Scan
         if: inputs.scan_type == 'source-code'
