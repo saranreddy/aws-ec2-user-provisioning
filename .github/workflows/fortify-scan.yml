@@ -1,0 +1,430 @@
+name: Fortify Security Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of scan to run'
+        required: true
+        type: choice
+        options:
+          - source-code
+          - dependency-check
+          - full-scan
+        default: 'source-code'
+      fortify_version:
+        description: 'Fortify version to use'
+        required: true
+        default: '24.2.0'
+        type: string
+      s3_bucket:
+        description: 'S3 bucket containing Fortify installation files'
+        required: true
+        default: 'aws-ec2-user-provisioning-security-files'
+        type: string
+      aws_account_id:
+        description: 'AWS Account ID'
+        required: true
+        default: '872515261591'
+        type: string
+      aws_region:
+        description: 'AWS Region'
+        required: true
+        default: 'us-east-2'
+        type: choice
+        options:
+          - us-east-2
+          - us-west-2
+          - us-east-1
+
+env:
+  FORTIFY_VERSION: "24.2.0"
+  FORTIFY_HOME: "/opt/fortify"
+  FORTIFY_SCA_HOME: "/opt/fortify/fortify-sca"
+
+jobs:
+  fortify-scan:
+    name: Fortify Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+          
+      - name: Set Role Name
+        run: |
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            exit 1
+          fi
+          
+          echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
+          echo "Using role ARN: ${{ env.AuthRole }}"
+          
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AuthRole }}
+          role-duration-seconds: 3600
+          aws-region: ${{ inputs.aws_region }}
+          
+      - name: Verify AWS Credentials
+        run: |
+          echo "=== AWS Credentials Verification ==="
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified"
+          
+      - name: Install System Dependencies
+        run: |
+          echo "=== Installing System Dependencies ==="
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget \
+            curl \
+            unzip \
+            build-essential \
+            python3 \
+            python3-pip \
+            default-jdk \
+            maven \
+            nodejs \
+            npm \
+            git
+          
+          echo "✅ System dependencies installed"
+          
+      - name: Create Fortify Installation Directory
+        run: |
+          echo "=== Creating Fortify Installation Directory ==="
+          sudo mkdir -p ${{ env.FORTIFY_HOME }}
+          sudo chown $USER:$USER ${{ env.FORTIFY_HOME }}
+          chmod 755 ${{ env.FORTIFY_HOME }}
+          
+          echo "✅ Fortify directory created: ${{ env.FORTIFY_HOME }}"
+          
+      - name: Download Fortify Installation Files from S3
+        run: |
+          echo "=== Downloading Fortify Files from S3 ==="
+          
+          S3_BUCKET="${{ inputs.s3_bucket }}"
+          FORTIFY_VERSION="${{ inputs.fortify_version }}"
+          
+          echo "Downloading from S3 bucket: $S3_BUCKET"
+          echo "Fortify version: $FORTIFY_VERSION"
+          
+          # Download Fortify SCA installer
+          echo "📥 Downloading Fortify SCA installer..."
+          aws s3 cp s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/Fortify_SCA_$FORTIFY_VERSION\_linux_x64.run ${{ env.FORTIFY_HOME }}/
+          
+          # Download license file
+          echo "📥 Downloading Fortify license..."
+          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/licenses/Fortify Software Security Center $FORTIFY_VERSION (Bundle+) License.txt" ${{ env.FORTIFY_HOME }}/fortify.license
+          
+          # Make installer executable
+          chmod +x ${{ env.FORTIFY_HOME }}/*.run
+          
+          echo "✅ All Fortify files downloaded from S3"
+          ls -la ${{ env.FORTIFY_HOME }}/
+          
+      - name: Install Fortify SCA
+        run: |
+          echo "=== Installing Fortify SCA ==="
+          
+          cd ${{ env.FORTIFY_HOME }}
+          
+          # Install Fortify SCA
+          echo "🔧 Installing Fortify SCA..."
+          ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --prefix ${{ env.FORTIFY_SCA_HOME }}
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Fortify SCA installed successfully"
+          else
+            echo "❌ Fortify SCA installation failed"
+            exit 1
+          fi
+          
+          # Set environment variables
+          echo "export FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
+          echo "export PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
+          
+      - name: Configure Fortify License
+        run: |
+          echo "=== Configuring Fortify License ==="
+          
+          # Copy license to Fortify SCA directory
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
+          
+          # Set license path
+          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
+          echo "export FORTIFY_LICENSE_PATH=$FORTIFY_LICENSE_PATH" >> $GITHUB_ENV
+          
+          echo "✅ Fortify license configured"
+          
+      - name: Verify Fortify Installation
+        run: |
+          echo "=== Verifying Fortify Installation ==="
+          
+          # Add Fortify to PATH for this session
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          # Test Fortify SCA
+          echo "🧪 Testing Fortify SCA..."
+          if sourceanalyzer -version; then
+            echo "✅ Fortify SCA is working"
+          else
+            echo "❌ Fortify SCA test failed"
+            exit 1
+          fi
+          
+          echo "✅ Fortify SCA verified successfully"
+          
+      - name: Run Fortify Source Code Scan
+        if: inputs.scan_type == 'source-code'
+        run: |
+          echo "=== Running Fortify Source Code Scan ==="
+          
+          # Add Fortify to PATH
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
+          
+          # Create scan directory
+          SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
+          mkdir -p $SCAN_DIR
+          
+          echo "🔍 Starting source code analysis..."
+          
+          # Run Fortify SCA scan
+          cd $GITHUB_WORKSPACE
+          
+          # Clean previous scan artifacts
+          sourceanalyzer -b fortify-scan -clean
+          
+          # Build and scan the project
+          sourceanalyzer -b fortify-scan \
+            -source 1.8 \
+            -cp "**/*.jar" \
+            -cp "**/*.class" \
+            -cp "**/*.py" \
+            -cp "**/*.js" \
+            -cp "**/*.ts" \
+            -cp "**/*.tf" \
+            -cp "**/*.yml" \
+            -cp "**/*.yaml" \
+            -cp "**/*.sh" \
+            -cp "**/*.py" \
+            .
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Source code analysis completed successfully"
+          else
+            echo "❌ Source code analysis failed"
+            exit 1
+          fi
+          
+          # Generate FPR report
+          echo "📊 Generating FPR report..."
+          sourceanalyzer -b fortify-scan -f $SCAN_DIR/fortify-scan.fpr
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ FPR report generated: $SCAN_DIR/fortify-scan.fpr"
+          else
+            echo "❌ FPR report generation failed"
+            exit 1
+          fi
+          
+          # Generate HTML report
+          echo "📊 Generating HTML report..."
+          ReportGenerator -f $SCAN_DIR/fortify-scan.html -source $SCAN_DIR/fortify-scan.fpr
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ HTML report generated: $SCAN_DIR/fortify-scan.html"
+          else
+            echo "❌ HTML report generation failed"
+            exit 1
+          fi
+          
+          echo "✅ Source code scan completed successfully"
+          
+      - name: Run Fortify Dependency Check
+        if: inputs.scan_type == 'dependency-check'
+        run: |
+          echo "=== Running Fortify Dependency Check ==="
+          
+          # Add Fortify to PATH
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
+          
+          # Create scan directory
+          SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
+          mkdir -p $SCAN_DIR
+          
+          echo "🔍 Starting dependency analysis..."
+          
+          # Run dependency check using Fortify
+          cd $GITHUB_WORKSPACE
+          
+          # Clean previous scan artifacts
+          sourceanalyzer -b fortify-deps -clean
+          
+          # Scan for dependencies
+          sourceanalyzer -b fortify-deps \
+            -cp "**/*.jar" \
+            -cp "**/*.class" \
+            -cp "**/*.py" \
+            -cp "**/*.js" \
+            -cp "**/*.ts" \
+            -cp "**/*.tf" \
+            -cp "**/*.yml" \
+            -cp "**/*.yaml" \
+            -cp "**/*.sh" \
+            -cp "**/*.py" \
+            .
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Dependency analysis completed successfully"
+          else
+            echo "❌ Dependency analysis failed"
+            exit 1
+          fi
+          
+          # Generate FPR report
+          echo "📊 Generating FPR report..."
+          sourceanalyzer -b fortify-deps -f $SCAN_DIR/fortify-deps.fpr
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ FPR report generated: $SCAN_DIR/fortify-deps.fpr"
+          else
+            echo "❌ FPR report generation failed"
+            exit 1
+          fi
+          
+          echo "✅ Dependency check completed successfully"
+          
+      - name: Run Full Fortify Scan
+        if: inputs.scan_type == 'full-scan'
+        run: |
+          echo "=== Running Full Fortify Scan ==="
+          
+          # Add Fortify to PATH
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
+          
+          # Create scan directory
+          SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
+          mkdir -p $SCAN_DIR
+          
+          echo "🔍 Starting comprehensive analysis..."
+          
+          # Clean previous scan artifacts
+          sourceanalyzer -b fortify-full -clean
+          
+          # Run comprehensive scan
+          sourceanalyzer -b fortify-full \
+            -source 1.8 \
+            -cp "**/*.jar" \
+            -cp "**/*.class" \
+            -cp "**/*.py" \
+            -cp "**/*.js" \
+            -cp "**/*.ts" \
+            -cp "**/*.tf" \
+            -cp "**/*.yml" \
+            -cp "**/*.yaml" \
+            -cp "**/*.sh" \
+            -cp "**/*.py" \
+            -Dcom.fortify.sca.Phase0HigherOrder.Lower=false \
+            -Dcom.fortify.sca.EnableAWB=true \
+            -Dcom.fortify.sca.EnableReportGeneration=true \
+            .
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Comprehensive analysis completed successfully"
+          else
+            echo "❌ Comprehensive analysis failed"
+            exit 1
+          fi
+          
+          # Generate FPR report
+          echo "📊 Generating FPR report..."
+          sourceanalyzer -b fortify-full -f $SCAN_DIR/fortify-full.fpr
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ FPR report generated: $SCAN_DIR/fortify-full.fpr"
+          else
+            echo "❌ FPR report generation failed"
+            exit 1
+          fi
+          
+          # Generate HTML report
+          echo "📊 Generating HTML report..."
+          ReportGenerator -f $SCAN_DIR/fortify-full.html -source $SCAN_DIR/fortify-full.fpr
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ HTML report generated: $SCAN_DIR/fortify-full.html"
+          else
+            echo "❌ HTML report generation failed"
+            exit 1
+          fi
+          
+          echo "✅ Full scan completed successfully"
+          
+      - name: Upload Scan Results to S3
+        run: |
+          echo "=== Uploading Scan Results to S3 ==="
+          
+          S3_BUCKET="${{ inputs.s3_bucket }}"
+          SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
+          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+          
+          # Create results directory in S3
+          S3_RESULTS_PATH="scan-results/$TIMESTAMP"
+          
+          echo "📤 Uploading scan results to S3..."
+          echo "S3 Path: s3://$S3_BUCKET/$S3_RESULTS_PATH"
+          
+          # Upload all scan results
+          aws s3 cp $SCAN_DIR s3://$S3_BUCKET/$S3_RESULTS_PATH --recursive
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Scan results uploaded to S3 successfully"
+            echo "S3 Location: s3://$S3_BUCKET/$S3_RESULTS_PATH"
+          else
+            echo "❌ Failed to upload scan results to S3"
+            exit 1
+          fi
+          
+      - name: Generate Scan Summary
+        run: |
+          echo "=== Fortify Scan Summary ==="
+          
+          SCAN_TYPE="${{ inputs.scan_type }}"
+          FORTIFY_VERSION="${{ inputs.fortify_version }}"
+          S3_BUCKET="${{ inputs.s3_bucket }}"
+          SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
+          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+          
+          echo "🎯 Scan Configuration:"
+          echo "- Scan Type: $SCAN_TYPE"
+          echo "- Fortify Version: $FORTIFY_VERSION"
+          echo "- S3 Bucket: $S3_BUCKET"
+          echo "- Timestamp: $TIMESTAMP"
+          echo ""
+          
+          echo "📊 Generated Reports:"
+          ls -la $SCAN_DIR/
+          echo ""
+          
+          echo "🔍 Scan Results:"
+          echo "- FPR Files: Available for Fortify SSC import"
+          echo "- HTML Reports: Human-readable vulnerability reports"
+          echo "- S3 Location: s3://$S3_BUCKET/scan-results/$TIMESTAMP"
+          echo ""
+          
+          echo "✅ Fortify scan completed successfully!"
+          echo "📋 Next Steps:"
+          echo "1. Review HTML reports in S3"
+          echo "2. Import FPR files to Fortify SSC for detailed analysis"
+          echo "3. Address critical and high severity vulnerabilities"
+          echo "4. Re-run scan after fixes to verify remediation"
