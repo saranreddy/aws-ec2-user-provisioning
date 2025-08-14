@@ -866,16 +866,12 @@ jobs:
                 
                 # Create placeholder files with proper Fortify headers
                 echo "Creating Fortify-compatible rule placeholders..."
-                cat > "$RULES_DIR/core/fortify-core-rules.bin" << 'EOF'
-# Fortify Core Rules Placeholder
-# This file ensures Fortify can operate with built-in rules
-# Actual rules are embedded in the Fortify installation
-EOF
-                cat > "$RULES_DIR/rules/fortify-default-rules.bin" << 'EOF'
-# Fortify Default Rules Placeholder
-# This file ensures Fortify can operate with built-in rules
-# Actual rules are embedded in the Fortify installation
-EOF
+                echo "# Fortify Core Rules Placeholder" > "$RULES_DIR/core/fortify-core-rules.bin"
+                echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/core/fortify-core-rules.bin"
+                echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/core/fortify-core-rules.bin"
+                echo "# Fortify Default Rules Placeholder" > "$RULES_DIR/rules/fortify-default-rules.bin"
+                echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/rules/fortify-default-rules.bin"
+                echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/rules/fortify-default-rules.bin"
                 
                 echo "📁 Created Fortify-compatible rule placeholders"
                 ACTUAL_RULES_FOUND="true"
