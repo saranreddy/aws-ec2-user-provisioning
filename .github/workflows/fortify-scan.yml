@@ -81,71 +81,24 @@ jobs:
         run: |
           echo "=== Installing System Dependencies ==="
           
-          # Install Java and ALL essential system utilities
-          echo "🔧 Installing Java and comprehensive system utilities..."
+          # Install Java and essential utilities
+          echo "🔧 Installing Java and utilities..."
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             openjdk-17-jdk-headless \
             unzip \
             ca-certificates \
-            curl \
-            coreutils \
-            findutils \
-            grep \
-            sed \
-            awk \
-            gawk \
-            bash \
-            procps \
-            util-linux \
-            file \
-            less \
-            vim-tiny \
-            nano \
-            wget \
-            git \
-            build-essential \
-            pkg-config
+            curl
           
           # Verify Java installation
           echo "🔍 Verifying Java installation..."
           java -version
           
-          # Verify essential commands are now available
-          echo "🔍 Verifying essential system commands..."
-          which cp && echo "✅ cp command available"
-          which ls && echo "✅ ls command available"
-          which which && echo "✅ which command available"
-          which find && echo "✅ find command available"
-          which grep && echo "✅ grep command available"
-          which sed && echo "✅ sed command available"
-          which awk && echo "✅ awk command available"
-          which mkdir && echo "✅ mkdir command available"
-          which chmod && echo "✅ chmod command available"
-          which chown && echo "✅ chown command available"
-          
           # Clean up package cache to save space
           echo "🧹 Cleaning up package cache..."
           sudo apt-get clean
           
-          echo "✅ All system dependencies and utilities installed successfully"
-          
-      - name: Setup System Environment
-        run: |
-          echo "=== Setting up System Environment ==="
-          
-          # Set comprehensive system PATH
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$PATH"
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          
-          # Double-check that all essential commands are available
-          echo "🔍 Final verification of essential system commands..."
-          which cp && echo "✅ cp command available at: $(which cp)"
-          which ls && echo "✅ ls command available at: $(which ls)"
-          which which && echo "✅ which command available at: $(which which)"
-          which find && echo "✅ find command available at: $(which find)"
-          
-          echo "✅ System environment fully configured and verified"
+          echo "✅ System dependencies installed and optimized"
           
       - name: Create Fortify Installation Directory
         run: |
@@ -283,11 +236,6 @@ jobs:
       - name: Configure Fortify License
         run: |
           echo "=== Configuring Fortify License ==="
-          
-          # Ensure basic commands are available
-          echo "🔍 Debug: Checking system commands..."
-          which cp || echo "cp not found in PATH"
-          echo "PATH: $PATH"
           
           # Copy license to multiple possible Fortify locations
           echo "📋 Copying license to multiple Fortify locations..."
