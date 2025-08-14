@@ -111,7 +111,7 @@ jobs:
           
           # Download license file
           echo "📥 Downloading Fortify license..."
-          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/licenses/Fortify Software Security Center $FORTIFY_VERSION (Bundle+) License.txt" ${{ env.FORTIFY_HOME }}/fortify.license
+          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/ot-package-sign.pub" ${{ env.FORTIFY_HOME }}/fortify.license
           
           # Make installer executable
           chmod +x ${{ env.FORTIFY_HOME }}/*.run
@@ -187,8 +187,12 @@ jobs:
           # Location 2: SCA root directory
           cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
           
-          # Location 3: System-wide Fortify location
-          sudo cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
+          # Location 3: System-wide Fortify location (avoid self-copying)
+          if [ "${{ env.FORTIFY_HOME }}" != "/opt/fortify" ]; then
+            sudo cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
+          else
+            echo "⚠️  Skipping system-wide copy (same location)"
+          fi
           
           # Location 4: User home directory (Fortify sometimes looks here)
           cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
