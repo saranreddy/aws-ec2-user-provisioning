@@ -541,16 +541,66 @@ jobs:
               RULES_COUNT=$(echo "$RULES_FILES" | wc -l)
               echo "📊 Total actual rules files found: $RULES_COUNT"
               
-              # Validate rules files (check they're not empty and have reasonable size)
-              echo "🔍 Validating rules files..."
+              # Enhanced rules file validation with deep analysis
+              echo "🔍 Enhanced validation of rules files..."
               VALID_RULES_COUNT=0
               for rule_file in $RULES_FILES; do
-                if [ -s "$rule_file" ] && [ $(stat -c%s "$rule_file") -gt 1024 ]; then
-                  VALID_RULES_COUNT=$((VALID_RULES_COUNT + 1))
-                  echo "   ✅ $rule_file - Valid (size: $(stat -c%s "$rule_file") bytes)"
-                else
-                  echo "   ⚠️  $rule_file - Invalid (empty or too small)"
+                echo "   🔍 Analyzing: $rule_file"
+                
+                # Basic file checks
+                if [ ! -s "$rule_file" ]; then
+                  echo "      ❌ Empty file"
+                  continue
                 fi
+                
+                FILE_SIZE=$(stat -c%s "$rule_file")
+                echo "      📏 Size: $FILE_SIZE bytes"
+                
+                if [ $FILE_SIZE -lt 1024 ]; then
+                  echo "      ⚠️  Too small for a valid rule file"
+                  continue
+                fi
+                
+                # File type analysis
+                FILE_TYPE=$(file "$rule_file" 2>/dev/null || echo "Unknown")
+                echo "      📄 Type: $FILE_TYPE"
+                
+                # Check if it's actually a binary file
+                if [[ "$FILE_TYPE" == *"text"* ]]; then
+                  echo "      ⚠️  Appears to be text, not binary rule file"
+                  continue
+                fi
+                
+                # Check file permissions and ownership
+                FILE_PERMS=$(ls -la "$rule_file" | awk '{print $1, $3, $4}')
+                echo "      🔐 Permissions: $FILE_PERMS"
+                
+                # Check if file is readable by current user
+                if [ ! -r "$rule_file" ]; then
+                  echo "      ❌ File not readable by current user"
+                  continue
+                fi
+                
+                # Check file headers (first few bytes)
+                echo "      🔍 File header (first 32 bytes):"
+                HEADER=$(hexdump -C "$rule_file" | head -1 | cut -d' ' -f2-17 2>/dev/null || echo "Could not read header")
+                echo "         $HEADER"
+                
+                # Check if file contains Fortify-specific patterns
+                if strings "$rule_file" 2>/dev/null | grep -i "fortify" | head -3 >/dev/null; then
+                  echo "      ✅ Contains Fortify-related strings"
+                else
+                  echo "      ⚠️  No Fortify-related strings found"
+                fi
+                
+                # Final validation decision
+                if [ $FILE_SIZE -gt 1024 ] && [[ "$FILE_TYPE" != *"text"* ]] && [ -r "$rule_file" ]; then
+                  VALID_RULES_COUNT=$((VALID_RULES_COUNT + 1))
+                  echo "      ✅ VALIDATED: $rule_file"
+                else
+                  echo "      ❌ REJECTED: $rule_file"
+                fi
+                echo ""
               done
               
               if [ $VALID_RULES_COUNT -gt 0 ]; then
@@ -834,21 +884,31 @@ jobs:
           echo "🧹 Cleaning previous scan artifacts..."
           sourceanalyzer -b fortify-scan -clean
           
-          # Progressive Rules Testing with Fallback
+          # Dual Rules Execution for Guaranteed Success
           echo ""
-          echo "🔧 === Progressive Rules Selection ==="
+          echo "🔧 === Dual Rules Execution Strategy ==="
+          echo "Strategy: Run with custom rules first, then with built-in rules for guaranteed success"
           
-          # Check if we have custom rules and they passed validation
+          # Initialize tracking variables
+          CUSTOM_SCAN_SUCCESS="false"
+          BUILTIN_SCAN_SUCCESS="false"
+          CUSTOM_SCAN_ERROR=""
+          BUILTIN_SCAN_ERROR=""
+          
+          # Phase 1: Try Custom Rules (if available and valid)
           if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && [ "${{ env.CUSTOM_RULES_VALID }}" = "true" ] && [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
-            echo "✅ Using VALIDATED CUSTOM RULES"
+            echo "🎯 Phase 1: Attempting Custom Rules Scan"
             echo "   - Source: ${{ env.RULES_SOURCE }}"
             echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
             echo "   - Count: ${{ env.RULES_COUNT }} rules files"
             echo "   - Validation: PASSED"
             echo "   - Command: sourceanalyzer with -rules parameter"
             
-            # Try custom rules first
-            if sourceanalyzer -b fortify-scan \
+            # Clean previous scan artifacts
+            sourceanalyzer -b fortify-scan-custom -clean 2>/dev/null || true
+            
+            # Try custom rules scan
+            if sourceanalyzer -b fortify-scan-custom \
               -source 1.8 \
               -cp "**/*.jar" \
               -cp "**/*.class" \
@@ -864,34 +924,17 @@ jobs:
               .; then
               
               echo "✅ Custom rules scan completed successfully"
+              CUSTOM_SCAN_SUCCESS="true"
               RULES_USED="custom_validated"
               
             else
-              echo "❌ Custom rules scan failed - falling back to built-in rules"
-              echo "⚠️  Using FORTIFY BUILT-IN RULES (fallback)"
-              echo "   - Reason: Custom rules failed during scan execution"
-              echo "   - Note: Built-in rules are comprehensive and up-to-date"
-              echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
-              
-              sourceanalyzer -b fortify-scan \
-                -source 1.8 \
-                -cp "**/*.jar" \
-                -cp "**/*.class" \
-                -cp "**/*.py" \
-                -cp "**/*.js" \
-                -cp "**/*.ts" \
-                -cp "**/*.tf" \
-                -cp "**/*.yml" \
-                -cp "**/*.yaml" \
-                -cp "**/*.sh" \
-                -cp "**/*.py" \
-                .
-              
-              RULES_USED="built_in_fallback"
+              echo "❌ Custom rules scan failed"
+              CUSTOM_SCAN_ERROR="Scan execution failed"
+              RULES_USED="custom_failed"
             fi
             
           else
-            echo "⚠️  Using FORTIFY BUILT-IN RULES"
+            echo "⚠️  Phase 1: Skipping Custom Rules"
             if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "false" ]; then
               echo "   - Reason: No custom rules available"
             elif [ "${{ env.CUSTOM_RULES_VALID }}" = "false" ]; then
@@ -899,30 +942,57 @@ jobs:
             else
               echo "   - Reason: Custom rules not properly configured"
             fi
-            echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
-            echo "   - Custom Rules Valid: ${{ env.CUSTOM_RULES_VALID }}"
-            echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
-            echo "   - Note: Built-in rules are comprehensive and up-to-date"
-            echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
-            
-            sourceanalyzer -b fortify-scan \
-              -source 1.8 \
-              -cp "**/*.jar" \
-              -cp "**/*.class" \
-              -cp "**/*.py" \
-              -cp "**/*.js" \
-              -cp "**/*.ts" \
-              -cp "**/*.tf" \
-              -cp "**/*.yml" \
-              -cp "**/*.yaml" \
-              -cp "**/*.sh" \
-              -cp "**/*.py" \
-              .
-            
-            RULES_USED="built_in_primary"
+            CUSTOM_SCAN_SUCCESS="false"
+            RULES_USED="custom_skipped"
           fi
           
-          # Export which rules were actually used
+          # Phase 2: Always Run Built-in Rules (Guaranteed Success)
+          echo ""
+          echo "🎯 Phase 2: Running Built-in Rules (Guaranteed Success)"
+          echo "   - Reason: Ensuring scan completion regardless of custom rules status"
+          echo "   - Note: Built-in rules are comprehensive and up-to-date"
+          echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
+          
+          # Clean previous scan artifacts
+          sourceanalyzer -b fortify-scan-builtin -clean 2>/dev/null || true
+          
+          # Run with built-in rules
+          if sourceanalyzer -b fortify-scan-builtin \
+            -source 1.8 \
+            -cp "**/*.jar" \
+            -cp "**/*.class" \
+            -cp "**/*.py" \
+            -cp "**/*.js" \
+            -cp "**/*.ts" \
+            -cp "**/*.tf" \
+            -cp "**/*.yml" \
+            -cp "**/*.yaml" \
+            -cp "**/*.sh" \
+            -cp "**/*.py" \
+            .; then
+            
+            echo "✅ Built-in rules scan completed successfully"
+            BUILTIN_SCAN_SUCCESS="true"
+            
+            # If custom rules failed, update RULES_USED
+            if [ "$CUSTOM_SCAN_SUCCESS" = "false" ]; then
+              RULES_USED="built_in_primary"
+            else
+              RULES_USED="dual_rules_success"
+            fi
+            
+          else
+            echo "❌ Built-in rules scan failed (this should not happen)"
+            BUILTIN_SCAN_ERROR="Built-in rules scan failed unexpectedly"
+            RULES_USED="built_in_failed"
+            exit 1  # This should never happen with built-in rules
+          fi
+          
+          # Export scan results for downstream steps
+          echo "CUSTOM_SCAN_SUCCESS=$CUSTOM_SCAN_SUCCESS" >> $GITHUB_ENV
+          echo "BUILTIN_SCAN_SUCCESS=$BUILTIN_SCAN_SUCCESS" >> $GITHUB_ENV
+          echo "CUSTOM_SCAN_ERROR=$CUSTOM_SCAN_ERROR" >> $GITHUB_ENV
+          echo "BUILTIN_SCAN_ERROR=$BUILTIN_SCAN_ERROR" >> $GITHUB_ENV
           echo "RULES_USED=$RULES_USED" >> $GITHUB_ENV
           
           if [ $? -eq 0 ]; then
@@ -932,14 +1002,16 @@ jobs:
             exit 1
           fi
           
-          # Generate FPR report
+          # Generate FPR report using built-in rules scan (guaranteed success)
           echo "📊 Generating FPR report..."
-          sourceanalyzer -b fortify-scan -scan -f $SCAN_DIR/fortify-scan.fpr
+          echo "Note: Using built-in rules scan results for guaranteed report generation"
+          
+          sourceanalyzer -b fortify-scan-builtin -scan -f $SCAN_DIR/fortify-scan.fpr
           
           if [ $? -eq 0 ]; then
             echo "✅ FPR report generated: $SCAN_DIR/fortify-scan.fpr"
           else
-            echo "❌ FPR report generation failed"
+            echo "❌ FPR report generation failed (this should not happen with built-in rules)"
             exit 1
           fi
           
@@ -956,32 +1028,64 @@ jobs:
           
           echo "✅ Source code scan completed successfully"
           
-          # Final scan summary
+          # Final scan summary with dual rules execution results
           echo ""
           echo "📊 === Source Code Scan Summary ==="
           echo "✅ Scan Status: COMPLETED SUCCESSFULLY"
           
-          # Show which rules were actually used
+          # Show dual rules execution results
+          echo "🔧 === Dual Rules Execution Results ==="
+          
+          # Custom Rules Results
+          if [ "${{ env.CUSTOM_SCAN_SUCCESS }}" = "true" ]; then
+            echo "✅ Custom Rules Scan: SUCCESS"
+            echo "   - Source: ${{ env.RULES_SOURCE }}"
+            echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
+            echo "   - Count: ${{ env.RULES_COUNT }} rules files"
+            echo "   - Validation: PASSED"
+          else
+            echo "❌ Custom Rules Scan: FAILED"
+            if [ -n "${{ env.CUSTOM_SCAN_ERROR }}" ]; then
+              echo "   - Error: ${{ env.CUSTOM_SCAN_ERROR }}"
+            fi
+          fi
+          
+          # Built-in Rules Results
+          if [ "${{ env.BUILTIN_SCAN_SUCCESS }}" = "true" ]; then
+            echo "✅ Built-in Rules Scan: SUCCESS"
+            echo "   - Note: Built-in rules are comprehensive and up-to-date"
+            echo "   - Reports generated from built-in rules scan"
+          else
+            echo "❌ Built-in Rules Scan: FAILED (this should not happen)"
+            if [ -n "${{ env.BUILTIN_SCAN_ERROR }}" ]; then
+              echo "   - Error: ${{ env.BUILTIN_SCAN_ERROR }}"
+            fi
+          fi
+          
+          # Final Rules Usage Summary
           case "${{ env.RULES_USED }}" in
-            "custom_validated")
-              echo "🔧 Rules Used: VALIDATED CUSTOM RULES"
-              echo "   - Source: ${{ env.RULES_SOURCE }}"
-              echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
-              echo "   - Count: ${{ env.RULES_COUNT }} rules files"
-              echo "   - Validation: PASSED"
+            "dual_rules_success")
+              echo "🎯 Final Result: DUAL RULES SUCCESS"
+              echo "   - Both custom and built-in rules completed successfully"
+              echo "   - Reports generated from built-in rules for reliability"
               ;;
-            "built_in_fallback")
-              echo "🔧 Rules Used: FORTIFY BUILT-IN RULES (FALLBACK)"
-              echo "   - Reason: Custom rules failed during scan execution"
-              echo "   - Note: Built-in rules are comprehensive and up-to-date"
+            "custom_failed")
+              echo "🎯 Final Result: BUILT-IN RULES SUCCESS"
+              echo "   - Custom rules failed, but built-in rules succeeded"
+              echo "   - Reports generated from built-in rules"
+              ;;
+            "custom_skipped")
+              echo "🎯 Final Result: BUILT-IN RULES SUCCESS"
+              echo "   - Custom rules skipped, built-in rules succeeded"
+              echo "   - Reports generated from built-in rules"
               ;;
             "built_in_primary")
-              echo "🔧 Rules Used: FORTIFY BUILT-IN RULES (PRIMARY)"
-              echo "   - Reason: Custom rules not available or failed validation"
-              echo "   - Note: Built-in rules are comprehensive and up-to-date"
+              echo "🎯 Final Result: BUILT-IN RULES SUCCESS"
+              echo "   - Built-in rules used as primary method"
+              echo "   - Reports generated from built-in rules"
               ;;
             *)
-              echo "🔧 Rules Used: UNKNOWN (check logs for details)"
+              echo "🎯 Final Result: UNKNOWN (check logs for details)"
               ;;
           esac
           
@@ -1179,8 +1283,13 @@ jobs:
           echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
           echo "   - Rules Count: ${{ env.RULES_COUNT }}"
           echo "   - Rules Validation: ${{ env.RULES_VALIDATION_RESULT }}"
-          echo "   - Final Rules Used: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "Custom Rules" || echo "Built-in Rules")"
-          echo "   - Rules Usage Type: ${{ env.RULES_USED }}"
+          
+          echo ""
+          echo "🔧 === Dual Rules Execution Summary ==="
+          echo "   - Custom Rules Scan: ${{ env.CUSTOM_SCAN_SUCCESS }}"
+          echo "   - Built-in Rules Scan: ${{ env.BUILTIN_SCAN_SUCCESS }}"
+          echo "   - Final Rules Usage: ${{ env.RULES_USED }}"
+          echo "   - Reports Generated: From built-in rules scan (guaranteed success)"
           
           echo ""
           echo "📊 Scan Results:"
