@@ -274,6 +274,7 @@ jobs:
           # Method 1: Try with installdir
           if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
             echo "✅ Fortify SCA installed successfully with installdir"
+            SCA_INSTALL_METHOD="installdir"
           else
             echo "⚠️  installdir failed, trying without directory specification..."
             # Method 2: Try without directory specification (install to default location)
@@ -281,22 +282,17 @@ jobs:
               echo "✅ Fortify SCA installed successfully to default location"
               # Update the SCA home to default location
               echo "FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
+              SCA_INSTALL_METHOD="default_location"
             else
               echo "❌ Fortify SCA installation failed"
               exit 1
             fi
           fi
           
-          if [ $? -eq 0 ]; then
-            echo "✅ Fortify SCA installed successfully"
-          else
-            echo "❌ Fortify SCA installation failed"
-            exit 1
-          fi
-          
           # Set environment variables
           echo "FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
           echo "PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
+          echo "SCA_INSTALL_METHOD=$SCA_INSTALL_METHOD" >> $GITHUB_ENV
           
           echo ""
           echo "🔧 Installing Fortify Apps and Tools (contains reporting tools)..."
@@ -304,13 +300,17 @@ jobs:
           # Install Fortify Apps and Tools to the same directory
           if ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
             echo "✅ Fortify Apps and Tools installed successfully"
+            APPS_TOOLS_INSTALLED="true"
           else
             echo "⚠️  Apps and Tools installation failed, but continuing with SCA..."
             echo "Note: Reporting tools may not be available"
+            APPS_TOOLS_INSTALLED="false"
           fi
           
-          # Find where Fortify was actually installed
-          echo "🔍 Locating Fortify installation..."
+          echo "APPS_TOOLS_INSTALLED=$APPS_TOOLS_INSTALLED" >> $GITHUB_ENV
+          
+          # Enhanced installation verification
+          echo "🔍 === Fortify Installation Verification ==="
           
           # Debug: Show what directories were created
           echo "📁 Debug: Checking what was created in /opt/fortify:"
@@ -340,6 +340,35 @@ jobs:
             echo "FORTIFY_SCA_HOME=$ACTUAL_SCA_HOME" >> $GITHUB_ENV
             echo "PATH=\$PATH:\$ACTUAL_SCA_HOME/bin" >> $GITHUB_ENV
             echo "✅ Updated FORTIFY_SCA_HOME to: $ACTUAL_SCA_HOME"
+            
+            # Verify installation completeness
+            echo ""
+            echo "🔍 Installation Completeness Check:"
+            echo "- SCA Install Method: $SCA_INSTALL_METHOD"
+            echo "- Apps & Tools Installed: $APPS_TOOLS_INSTALLED"
+            echo "- sourceanalyzer Location: $SOURCEANALYZER_PATH"
+            echo "- Actual SCA Home: $ACTUAL_SCA_HOME"
+            
+            # Check for essential Fortify components
+            echo ""
+            echo "🔍 Essential Components Check:"
+            if [ -f "$ACTUAL_SCA_HOME/bin/sourceanalyzer" ]; then
+              echo "✅ sourceanalyzer: Found"
+            else
+              echo "❌ sourceanalyzer: Missing"
+            fi
+            
+            if [ -f "$ACTUAL_SCA_HOME/bin/ReportGenerator" ]; then
+              echo "✅ ReportGenerator: Found"
+            else
+              echo "⚠️  ReportGenerator: Missing (Apps & Tools may not have installed)"
+            fi
+            
+            if [ -d "$ACTUAL_SCA_HOME/Core" ]; then
+              echo "✅ Core Directory: Found"
+            else
+              echo "⚠️  Core Directory: Missing (Rules may not be available)"
+            fi
           else
             echo "❌ sourceanalyzer not found anywhere in /opt"
             echo "🔍 Debug: Let's check what the installer actually created:"
@@ -347,6 +376,7 @@ jobs:
             ls -la /opt/fortify/ 2>/dev/null || echo "Directory not found"
             echo "--- Contents of FORTIFY_HOME: ---"
             ls -la ${{ env.FORTIFY_HOME }}/ 2>/dev/null || echo "Directory not found"
+            exit 1
           fi
           
       - name: Configure Fortify License
@@ -482,61 +512,80 @@ jobs:
             fi
           done
           
-          # Set rules path environment variable
+                    # Enhanced rules path configuration with comprehensive logging
           echo ""
-          echo "🔧 Setting rules path..."
+          echo "🔧 === Rules Path Configuration ==="
+          
+          # Initialize rules tracking variables
+          CUSTOM_RULES_AVAILABLE="false"
+          RULES_SOURCE="none"
+          RULES_COUNT=0
+          
           if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
-            FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
-            echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
-            echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
+            echo "🔍 Found Core directory at: ${{ env.FORTIFY_SCA_HOME }}/Core"
             
             # Debug: Show what's in the Core directory
-            echo "🔍 Debug: Contents of Core directory:"
+            echo "📁 Contents of Core directory:"
             ls -la "${{ env.FORTIFY_SCA_HOME }}/Core/" | head -10
             
-                      # Debug: Check for specific rules files
-          echo "🔍 Debug: Looking for rules files in Core:"
-          find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | head -10 || echo "No specific rules files found"
-          
-          # Check if Core directory is empty
-          if [ -z "$(ls -A "${{ env.FORTIFY_SCA_HOME }}/Core" 2>/dev/null)" ]; then
-            echo "⚠️  Core directory is empty - this suggests incomplete Fortify installation"
-            echo "🔍 Let's search for rules files in the entire Fortify installation tree:"
-            find /opt/fortify -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" -o -name "*Core*" 2>/dev/null | head -20 || echo "No rules files found anywhere in /opt/fortify"
-          fi
+            # Check for specific rules files
+            echo "🔍 Searching for rules files in Core:"
+            RULES_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null)
             
+            if [ -n "$RULES_FILES" ]; then
+              echo "✅ Found rules files in Core:"
+              echo "$RULES_FILES" | head -10
+              RULES_COUNT=$(echo "$RULES_FILES" | wc -l)
+              echo "📊 Total rules files found: $RULES_COUNT"
+              
+              FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
+              echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+              CUSTOM_RULES_AVAILABLE="true"
+              RULES_SOURCE="Core directory"
+              echo "✅ Custom rules path set to: $FORTIFY_RULES_PATH"
+            else
+              echo "⚠️  Core directory exists but contains no rules files"
+              echo "🔍 Searching for rules files in entire Fortify installation tree:"
+              find /opt/fortify -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" -o -name "*Core*" 2>/dev/null | head -20 || echo "No rules files found anywhere in /opt/fortify"
+            fi
+             
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
+            echo "🔍 Found core directory at: ${{ env.FORTIFY_SCA_HOME }}/core"
             FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
             echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
-            echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
+            CUSTOM_RULES_AVAILABLE="true"
+            RULES_SOURCE="core directory"
+            echo "✅ Custom rules path set to: $FORTIFY_RULES_PATH"
           else
-            echo "⚠️  No rules directory found, will use default"
+            echo "⚠️  No custom rules directory found"
           fi
+          
+          # Final rules configuration summary
+          echo ""
+          echo "🔧 === Final Rules Configuration ==="
+          if [ "$CUSTOM_RULES_AVAILABLE" = "true" ]; then
+            echo "✅ Custom Rules: AVAILABLE"
+            echo "   - Source: $RULES_SOURCE"
+            echo "   - Path: $FORTIFY_RULES_PATH"
+            echo "   - Count: $RULES_COUNT rules files"
+            echo "   - Will use: Custom rules from $RULES_SOURCE"
+          else
+            echo "⚠️  Custom Rules: NOT AVAILABLE"
+            echo "   - Will use: Fortify built-in rules"
+            echo "   - Note: Built-in rules are comprehensive and up-to-date"
+          fi
+          
+          # Export rules status for other steps
+          echo "CUSTOM_RULES_AVAILABLE=$CUSTOM_RULES_AVAILABLE" >> $GITHUB_ENV
+          echo "RULES_SOURCE=$RULES_SOURCE" >> $GITHUB_ENV
+          echo "RULES_COUNT=$RULES_COUNT" >> $GITHUB_ENV
           
           # Show Fortify environment
           echo ""
           echo "🔍 Fortify environment variables:"
           env | grep -i fortify || echo "No Fortify environment variables found"
           
-          # Verify rules path is set
-          echo ""
-          echo "🔍 Verifying FORTIFY_RULES_PATH is set:"
-          if [ -n "$FORTIFY_RULES_PATH" ]; then
-            echo "✅ FORTIFY_RULES_PATH is set to: $FORTIFY_RULES_PATH"
-            echo "✅ Rules directory exists: $([ -d "$FORTIFY_RULES_PATH" ] && echo "YES" || echo "NO")"
-            
-            # Check if rules directory actually contains rules files
-            RULES_COUNT=$(find "$FORTIFY_RULES_PATH" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | wc -l)
-            if [ "$RULES_COUNT" -gt 0 ]; then
-              echo "✅ Rules directory contains $RULES_COUNT rules files"
-            else
-              echo "⚠️  Rules directory exists but contains no rules files - will use default Fortify rules"
-              echo "FORTIFY_RULES_PATH=" >> $GITHUB_ENV
-              unset FORTIFY_RULES_PATH
-            fi
-          else
-            echo "⚠️  FORTIFY_RULES_PATH is not set - will use default Fortify rules"
-          fi
+          # Rules verification is now handled in the enhanced configuration above
           
       - name: Debug Fortify License Issues
         if: inputs.scan_type == 'source-code'
@@ -619,26 +668,35 @@ jobs:
           SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
           mkdir -p $SCAN_DIR
           
-          # Debug: Show environment before scan
-          echo "🔍 Debug: Environment before scan:"
+          # Enhanced scan configuration with comprehensive logging
+          echo "🔍 === Source Code Scan Configuration ==="
           echo "FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
-          echo "FORTIFY_RULES_PATH: ${{ env.FORTIFY_RULES_PATH }}"
+          echo "CUSTOM_RULES_AVAILABLE: ${{ env.CUSTOM_RULES_AVAILABLE }}"
+          echo "RULES_SOURCE: ${{ env.RULES_SOURCE }}"
+          echo "RULES_COUNT: ${{ env.RULES_COUNT }}"
           echo "PATH: $PATH"
           
+          echo ""
           echo "🔍 Starting source code analysis..."
           
           # Run Fortify SCA scan
           cd $GITHUB_WORKSPACE
           
           # Clean previous scan artifacts
+          echo "🧹 Cleaning previous scan artifacts..."
           sourceanalyzer -b fortify-scan -clean
           
-          # Build and scan the project
-          echo "🔍 Debug: Using rules path: ${{ env.FORTIFY_RULES_PATH }}"
-          echo "🔍 Debug: Rules path exists: $([ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ] && echo "YES" || echo "NO")"
+          # Determine which rules to use and log the decision
+          echo ""
+          echo "🔧 === Rules Selection Decision ==="
           
-          if [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
-            echo "🔧 Using custom rules path: ${{ env.FORTIFY_RULES_PATH }}"
+          if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
+            echo "✅ Using CUSTOM RULES"
+            echo "   - Source: ${{ env.RULES_SOURCE }}"
+            echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
+            echo "   - Count: ${{ env.RULES_COUNT }} rules files"
+            echo "   - Command: sourceanalyzer with -rules parameter"
+            
             sourceanalyzer -b fortify-scan \
               -source 1.8 \
               -cp "**/*.jar" \
@@ -653,24 +711,15 @@ jobs:
               -cp "**/*.py" \
               -rules "${{ env.FORTIFY_RULES_PATH }}" \
               .
-          elif [ -n "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" ]; then
-            echo "🔧 Using downloaded default rules path: ${{ env.FORTIFY_DEFAULT_RULES_PATH }}"
-            sourceanalyzer -b fortify-scan \
-              -source 1.8 \
-              -cp "**/*.jar" \
-              -cp "**/*.class" \
-              -cp "**/*.py" \
-              -cp "**/*.js" \
-              -cp "**/*.ts" \
-              -cp "**/*.tf" \
-              -cp "**/*.yml" \
-              -cp "**/*.yaml" \
-              -cp "**/*.sh" \
-              -cp "**/*.py" \
-              -rules "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" \
-              .
+              
           else
-            echo "🔧 No custom or default rules available, using Fortify built-in rules"
+            echo "⚠️  Using FORTIFY BUILT-IN RULES"
+            echo "   - Reason: Custom rules not available or invalid"
+            echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
+            echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
+            echo "   - Note: Built-in rules are comprehensive and up-to-date"
+            echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
+            
             sourceanalyzer -b fortify-scan \
               -source 1.8 \
               -cp "**/*.jar" \
@@ -716,6 +765,17 @@ jobs:
           fi
           
           echo "✅ Source code scan completed successfully"
+          
+          # Final scan summary
+          echo ""
+          echo "📊 === Source Code Scan Summary ==="
+          echo "✅ Scan Status: COMPLETED SUCCESSFULLY"
+          echo "🔧 Rules Used: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "Custom Rules from ${{ env.RULES_SOURCE }}" || echo "Fortify Built-in Rules")"
+          echo "📁 Rules Path: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "${{ env.FORTIFY_RULES_PATH }}" || echo "Built-in (no path)")"
+          echo "📊 Rules Count: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "${{ env.RULES_COUNT }}" || echo "Built-in (countless)")"
+          echo "🎯 Installation Method: ${{ env.SCA_INSTALL_METHOD }}"
+          echo "🔧 Apps & Tools: ${{ env.APPS_TOOLS_INSTALLED }}"
+          echo "📁 Scan Directory: $SCAN_DIR"
           
       - name: Run Fortify Dependency Check
         if: inputs.scan_type == 'dependency-check'
@@ -892,6 +952,30 @@ jobs:
           echo ""
           
           echo "✅ Fortify scan completed successfully!"
+          
+          # Final workflow summary
+          echo ""
+          echo "🎯 === Final Workflow Summary ==="
+          echo "🔧 Installation Status:"
+          echo "   - SCA Install Method: ${{ env.SCA_INSTALL_METHOD }}"
+          echo "   - Apps & Tools Installed: ${{ env.APPS_TOOLS_INSTALLED }}"
+          echo "   - FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
+          
+          echo ""
+          echo "📋 Rules Configuration:"
+          echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
+          echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
+          echo "   - Rules Count: ${{ env.RULES_COUNT }}"
+          echo "   - Final Rules Used: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "Custom Rules" || echo "Built-in Rules")"
+          
+          echo ""
+          echo "📊 Scan Results:"
+          echo "   - Scan Type: $SCAN_TYPE"
+          echo "   - Fortify Version: $FORTIFY_VERSION"
+          echo "   - S3 Bucket: $S3_BUCKET"
+          echo "   - Timestamp: $TIMESTAMP"
+          
+          echo ""
           echo "📋 Next Steps:"
           echo "1. Review HTML reports in S3"
           echo "2. Import FPR files to Fortify SSC for detailed analysis"
