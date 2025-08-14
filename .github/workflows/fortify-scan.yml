@@ -343,6 +343,15 @@ jobs:
             export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
             echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
             echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
+            
+            # Debug: Show what's in the Core directory
+            echo "🔍 Debug: Contents of Core directory:"
+            ls -la "${{ env.FORTIFY_SCA_HOME }}/Core/" | head -10
+            
+            # Debug: Check for specific rules files
+            echo "🔍 Debug: Looking for rules files in Core:"
+            find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | head -10 || echo "No specific rules files found"
+            
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
             export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
             echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
@@ -431,6 +440,12 @@ jobs:
           SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
           mkdir -p $SCAN_DIR
           
+          # Debug: Show environment before scan
+          echo "🔍 Debug: Environment before scan:"
+          echo "FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
+          echo "FORTIFY_RULES_PATH: ${{ env.FORTIFY_RULES_PATH }}"
+          echo "PATH: $PATH"
+          
           echo "🔍 Starting source code analysis..."
           
           # Run Fortify SCA scan
@@ -440,20 +455,41 @@ jobs:
           sourceanalyzer -b fortify-scan -clean
           
           # Build and scan the project
-          sourceanalyzer -b fortify-scan \
-            -source 1.8 \
-            -cp "**/*.jar" \
-            -cp "**/*.class" \
-            -cp "**/*.py" \
-            -cp "**/*.js" \
-            -cp "**/*.ts" \
-            -cp "**/*.tf" \
-            -cp "**/*.yml" \
-            -cp "**/*.yaml" \
-            -cp "**/*.sh" \
-            -cp "**/*.py" \
-            -rules "${{ env.FORTIFY_RULES_PATH }}" \
-            .
+          echo "🔍 Debug: Using rules path: ${{ env.FORTIFY_RULES_PATH }}"
+          echo "🔍 Debug: Rules path exists: $([ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ] && echo "YES" || echo "NO")"
+          
+          if [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
+            echo "🔧 Using custom rules path: ${{ env.FORTIFY_RULES_PATH }}"
+            sourceanalyzer -b fortify-scan \
+              -source 1.8 \
+              -cp "**/*.jar" \
+              -cp "**/*.class" \
+              -cp "**/*.py" \
+              -cp "**/*.js" \
+              -cp "**/*.ts" \
+              -cp "**/*.tf" \
+              -cp "**/*.yml" \
+              -cp "**/*.yaml" \
+              -cp "**/*.sh" \
+              -cp "**/*.py" \
+              -rules "${{ env.FORTIFY_RULES_PATH }}" \
+              .
+          else
+            echo "🔧 Rules path not set or invalid, using default Fortify rules"
+            sourceanalyzer -b fortify-scan \
+              -source 1.8 \
+              -cp "**/*.jar" \
+              -cp "**/*.class" \
+              -cp "**/*.py" \
+              -cp "**/*.js" \
+              -cp "**/*.ts" \
+              -cp "**/*.tf" \
+              -cp "**/*.yml" \
+              -cp "**/*.yaml" \
+              -cp "**/*.sh" \
+              -cp "**/*.py" \
+              .
+          fi
           
           if [ $? -eq 0 ]; then
             echo "✅ Source code analysis completed successfully"
