@@ -44,8 +44,6 @@ jobs:
   fortify-security-scan:
     name: Fortify Security Scan
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:22.04
     permissions:
       id-token: write
       contents: read
@@ -56,10 +54,10 @@ jobs:
           
       - name: Check Available Disk Space
         run: |
-          echo " Checking available disk space..."
+          echo "📊 Checking available disk space..."
           df -h
           
-          # Check available space in /tmp (where we'll install Fortify)
+          # Check available space in /tmp
           AVAILABLE_KB=$(df /tmp | awk 'NR==2 {print $4}')
           AVAILABLE_MB=$((AVAILABLE_KB / 1024))
           AVAILABLE_GB=$((AVAILABLE_MB / 1024))
@@ -69,33 +67,14 @@ jobs:
           # Need at least 4GB for Fortify installation + scan results
           if [ $AVAILABLE_KB -lt 4000000 ]; then
             echo "❌ Insufficient disk space (need at least 4GB, have ${AVAILABLE_GB}GB)"
-            echo "🧹 Attempting to clean up previous runs..."
-            
-            # Clean up previous failed runs
-            rm -rf /tmp/fortify-install 2>/dev/null || true
-            rm -rf /opt/fortify 2>/dev/null || true
-            rm -rf /tmp/fortify-scan-results 2>/dev/null || true
-            
-            # Check space again after cleanup
-            AVAILABLE_KB_AFTER=$(df /tmp | awk 'NR==2 {print $4}')
-            AVAILABLE_MB_AFTER=$((AVAILABLE_KB_AFTER / 1024))
-            AVAILABLE_GB_AFTER=$((AVAILABLE_MB_AFTER / 1024))
-            
-            echo "📊 Available disk space after cleanup: ${AVAILABLE_GB_AFTER}GB (${AVAILABLE_MB_AFTER}MB)"
-            
-            if [ $AVAILABLE_KB_AFTER -lt 4000000 ]; then
-              echo "❌ Still insufficient disk space after cleanup"
-              exit 1
-            else
-              echo "✅ Sufficient disk space available after cleanup"
-            fi
+            exit 1
           else
             echo "✅ Sufficient disk space available"
           fi
           
-      - name: Cleanup Previous Failed Runs
+      - name: Cleanup Previous Runs
         run: |
-          echo "🧹 Cleaning up files from previous failed runs..."
+          echo "🧹 Cleaning up files from previous runs..."
           
           # Remove any existing Fortify installation directories
           rm -rf /tmp/fortify-install 2>/dev/null || true
@@ -108,15 +87,7 @@ jobs:
           find /tmp -name "*.zip" -type f -delete 2>/dev/null || true
           find /tmp -name "*.run" -type f -delete 2>/dev/null || true
           
-          # Clean up any temporary scan files
-          find /tmp -name "*.fpr" -type f -delete 2>/dev/null || true
-          find /tmp -name "*.html" -type f -delete 2>/dev/null || true
-          find /tmp -name "*.txt" -type f -delete 2>/dev/null || true
-          find /tmp -name "*.json" -type f -delete 2>/dev/null || true
-          
           echo "✅ Cleanup completed"
-          echo "📊 Current disk usage:"
-          df -h /tmp
           
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -188,7 +159,7 @@ jobs:
           
           echo "📥 Downloading Fortify components from s3://$SECURITY_BUCKET..."
           
-          # Download core Fortify components (the actual files that exist)
+          # Download core Fortify components
           echo "📥 Downloading Fortify SCA..."
           aws s3 cp "s3://$SECURITY_BUCKET/fortify/${{ env.FORTIFY_VERSION }}/components/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ./
           
@@ -214,279 +185,49 @@ jobs:
           echo "✅ All Fortify components downloaded successfully"
           ls -la
           
-      - name: Analyze Extracted Fortify Components
-        run: |
-          echo "=== Analyzing Extracted Fortify Components ==="
-          
-          cd /tmp/fortify-install
-          
-          echo "🔍 Creating analysis directory..."
-          mkdir -p /tmp/fortify-analysis
-          cd /tmp/fortify-analysis
-          
-          echo "📦 Extracting all components for analysis..."
-          
-          # Extract SCA component (it's a .run file, no extraction needed)
-          echo "🔧 Checking Fortify SCA..."
-          if [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
-            echo "✅ SCA .run file found (ready for installation)"
-          else
-            echo "❌ SCA .run file not found"
-          fi
-          
-          # Extract Tools component
-          echo "🔧 Extracting Fortify Tools..."
-          if [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
-            tar -xzf "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz"
-            echo "✅ Tools extracted"
-          elif [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar" ]; then
-            tar -xf "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar"
-            echo "✅ Tools extracted"
-          else
-            echo "❌ Tools file not found"
-          fi
-          
-          # Extract other components
-          echo "🔧 Extracting other components..."
-          for file in /tmp/fortify-install/*.zip; do
-            if [ -f "$file" ]; then
-              echo "📦 Extracting: $(basename "$file")"
-              unzip -o "$file"
-            fi
-          done
-          
-          echo ""
-          echo "📋 ANALYSIS RESULTS:"
-          echo "===================="
-          echo ""
-          echo "🔍 All extracted files and directories:"
-          find . -type f -o -type d | sort
-          
-          echo ""
-          echo "🚀 .run files found:"
-          find . -name "*.run" -type f | sort
-          
-          echo ""
-          echo "📁 Directory structure:"
-          tree . || find . -type d | sort
-          
-          echo ""
-          echo "📊 File count by type:"
-          echo "Total files: $(find . -type f | wc -l)"
-          echo "Total directories: $(find . -type d | wc -l)"
-          echo ".run files: $(find . -name "*.run" | wc -l)"
-          echo ".tar files: $(find . -name "*.tar" | wc -l)"
-          echo ".zip files: $(find . -name "*.zip" | wc -l)"
-          
-          echo ""
-          echo "💡 Installation recommendations:"
-          echo "- .run files should be executed with: chmod +x file.run && ./file.run --mode unattended --installdir /opt/fortify"
-          echo "- .tar files should be extracted with: tar -xf file.tar"
-          echo "- .zip files should be extracted with: unzip -o file.zip"
-          
-          echo ""
-          echo "✅ Component analysis completed"
-          
       - name: Install Fortify Components
         run: |
           echo "=== Installing Fortify Components ==="
           
-          cd /tmp/fortify-install
-          
           # Create Fortify installation directory
           mkdir -p /opt/fortify
-          cd /opt/fortify
           
           echo "🔧 Installing Fortify SCA..."
           if [ -f "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" ]; then
-            echo "🚀 Executing Fortify SCA installer..."
-            echo "📁 Current directory: $(pwd)"
-            echo "📋 File details:"
-            ls -la "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run"
-            
             chmod +x "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run"
-            echo "🔒 File permissions updated"
-            
-            echo "🚀 Running installer with: --mode unattended --installdir /opt/fortify"
-            echo "📝 Installer output:"
-            echo "🔍 Before installation - checking current state:"
-            echo "📂 /opt/fortify contents before SCA install:"
-            ls -la /opt/fortify/ 2>/dev/null || echo "❌ /opt/fortify not accessible"
-            
-            echo ""
-            echo "🚀 Executing SCA installer..."
-            "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify 2>&1 | tee /tmp/sca-installer.log
-            
-            echo ""
-            echo "📋 SCA Installer log:"
-            cat /tmp/sca-installer.log
-            
-            echo ""
+            echo "🚀 Executing Fortify SCA installer..."
+            "/tmp/fortify-install/Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run" --mode unattended --installdir /opt/fortify
             echo "✅ Fortify SCA installed successfully"
           else
             echo "❌ Fortify SCA .run file not found"
-            echo "📁 Available files in installation directory:"
-            ls -la /tmp/fortify-install/
             exit 1
           fi
           
           echo "🔧 Installing Fortify Tools..."
           if [ -f "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" ]; then
-            echo "🚀 Extracting Fortify Tools..."
-            echo "📋 File details:"
-            ls -la "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz"
-            
-            echo "📦 Extracting Tools archive..."
+            echo "📦 Extracting Fortify Tools..."
             tar -xzf "/tmp/fortify-install/Fortify_Tools_${{ env.FORTIFY_VERSION }}_Linux.tar.gz" -C /opt/fortify
-            
-            echo "📁 Checking installation directory after Tools install:"
-            ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
-            ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin directory not found"
-            
             echo "✅ Fortify Tools extracted successfully"
           else
             echo "❌ Fortify Tools archive not found"
-            echo "📁 Available files in installation directory:"
-            ls -la /tmp/fortify-install/
             exit 1
           fi
           
-          echo "🔧 Installing ScanCentral Controller..."
+          echo "🔧 Installing other components..."
+          cd /opt/fortify
+          
+          # Extract zip components
           unzip -o /tmp/fortify-install/Fortify_ScanCentral_Controller_${{ env.FORTIFY_VERSION }}.zip
-          
-          echo "🔧 Installing SSC Server..."
           unzip -o /tmp/fortify-install/Fortify_SSC_Server_${{ env.FORTIFY_VERSION }}.zip
-          
-          echo "🔧 Installing Fortify Samples..."
           unzip -o /tmp/fortify-install/Fortify_Samples_${{ env.FORTIFY_VERSION }}.zip
-          
-          echo "🔧 Installing ScanCentral DAST..."
           unzip -o /tmp/fortify-install/ScanCentral_DAST_24.2.zip
-          
-          echo "🔧 Installing Licenses..."
           unzip -o "/tmp/fortify-install/FortifySoftwareSecurity Center${{ env.FORTIFY_VERSION }}Licenses.zip"
           
           # Set up environment variables
           echo 'export FORTIFY_HOME=/opt/fortify' >> $GITHUB_ENV
           echo 'export PATH=$PATH:/opt/fortify/bin' >> $GITHUB_ENV
           
-          echo "✅ Fortify components extracted"
-          
-          echo ""
-          echo "🔧 REAL SMART SOLUTION: Find and use actual Fortify components..."
-          echo "====================================================================="
-          
-          # Create the proper bin directory
-          mkdir -p /opt/fortify/bin
-          
-          echo "🔍 First, let's see what Fortify components are actually available in S3..."
-          echo "📂 Listing available components in S3:"
-          aws s3 ls "s3://${{ env.SECURITY_FILES_BUCKET }}/fortify/${{ env.FORTIFY_VERSION }}/components/" --recursive --human-readable || echo "❌ Failed to list S3 components"
-          
-          echo ""
-          echo "🔍 Now let's check what we already have extracted in /opt/fortify..."
-          echo "📂 Contents of /opt/fortify:"
-          ls -la /opt/fortify/
-          
-          echo ""
-          echo "🔍 Looking for any Fortify component files that might contain binaries..."
-          cd /opt/fortify
-          # Look for any files that might contain Fortify binaries
-          echo "📋 Searching for potential Fortify component files:"
-          find . -name "*.zip" -o -name "*.tar" -o -name "*.tar.gz" | head -10
-          
-          echo ""
-          echo "🔍 Let's try to extract the ScanCentral components to see if they contain binaries..."
-          if [ -f "Fortify_ScanCentral_Controller_24.2.0_x64.zip" ]; then
-            echo "📦 Extracting ScanCentral Controller to look for binaries..."
-            unzip -o "Fortify_ScanCentral_Controller_24.2.0_x64.zip" -d /tmp/scancentral-extract
-            find /tmp/scancentral-extract -name "sourceanalyzer" -type f -exec cp {} /opt/fortify/bin/ \;
-            find /tmp/scancentral-extract -name "fortifyclient" -type f -exec cp {} /opt/fortify/bin/ \;
-            echo "✅ ScanCentral binaries extracted (if any found)"
-          fi
-          
-          echo ""
-          echo "🔍 Let's also check if there are any .run files that we can actually execute..."
-          find . -name "*.run" -type f | head -5
-          
-          # Set proper permissions if we found any binaries
-          if [ "$(ls -A /opt/fortify/bin/)" ]; then
-            chmod +x /opt/fortify/bin/*
-            echo "✅ Permissions set for binaries in /opt/fortify/bin"
-          else
-            echo "⚠️ No binaries found yet, will continue searching..."
-          fi
-          
-          echo ""
-          echo "📁 FINAL INSTALLATION VERIFICATION:"
-          echo "=================================="
-          echo "📂 /opt/fortify directory contents:"
-          ls -la /opt/fortify/ || echo "❌ /opt/fortify directory not accessible"
-          
-          echo ""
-          echo "📂 /opt/fortify/bin directory contents:"
-          if [ -d "/opt/fortify/bin" ]; then
-            echo "✅ /opt/fortify/bin directory exists!"
-            ls -la /opt/fortify/bin/
-            echo ""
-            echo "📊 Files in /opt/fortify/bin: $(ls /opt/fortify/bin/ | wc -l)"
-            echo "📋 Contents: $(ls /opt/fortify/bin/ 2>/dev/null | tr '\n' ' ' || echo 'empty')"
-          else
-            echo "❌ /opt/fortify/bin directory not found"
-          fi
-          
-          echo ""
-          echo "🔍 Searching for Fortify binaries in entire /opt/fortify tree:"
-          find /opt/fortify -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found"
-          find /opt/fortify -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found"
-          
-          echo ""
-          echo "🔍 Searching for Fortify binaries in common system locations:"
-          echo "⏱️ Searching with timeout to avoid hanging..."
-          
-          timeout 30s find /usr -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "⏱️ sourceanalyzer search timed out or not found in /usr"
-          timeout 30s find /usr -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "⏱️ fortifyclient search timed out or not found in /usr"
-          timeout 30s find /opt -name "sourceanalyzer" -type f 2>/dev/null | head -5 || echo "⏱️ sourceanalyzer search timed out or not found in /opt"
-          timeout 30s find /opt -name "fortifyclient" -type f 2>/dev/null | head -5 || echo "⏱️ fortifyclient search timed out or not found in /opt"
-          
-          echo ""
-          echo "🔍 Searching for Fortify binaries in Fortify subdirectories:"
-          echo "📂 /opt/fortify/Core:"
-          find /opt/fortify/Core -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found in Core"
-          find /opt/fortify/Core -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found in Core"
-          
-          echo "📂 /opt/fortify/Tools:"
-          find /opt/fortify/Tools -name "sourceanalyzer" -type f 2>/dev/null || echo "❌ sourceanalyzer not found in Tools"
-          find /opt/fortify/Tools -name "fortifyclient" -type f 2>/dev/null || echo "❌ fortifyclient not found in Tools"
-          
-          echo ""
-          echo "🔍 Quick targeted search in common Fortify locations:"
-          echo "📂 Checking /opt/fortify/bin directly:"
-          ls -la /opt/fortify/bin/ 2>/dev/null || echo "❌ /opt/fortify/bin not accessible"
-          
-          echo "📂 Checking /opt/fortify/Core/bin:"
-          ls -la /opt/fortify/Core/bin/ 2>/dev/null || echo "❌ /opt/fortify/Core/bin not found"
-          
-          echo "📂 Checking /opt/fortify/Tools/bin:"
-          ls -la /opt/fortify/Tools/bin/ 2>/dev/null || echo "❌ /opt/fortify/Tools/bin not found"
-          
-          echo ""
-          echo "🔍 Analyzing installer behavior:"
-          echo "📋 Checking if installers created any hidden directories:"
-          find /opt/fortify -type d -name ".*" 2>/dev/null || echo "❌ No hidden directories found"
-          
-          echo "📋 Checking if installers created any nested structures:"
-          find /opt/fortify -type d -mindepth 2 2>/dev/null | head -10 || echo "❌ No nested directories found"
-          
-          echo "📋 Checking if installers created any symlinks:"
-          find /opt/fortify -type l 2>/dev/null || echo "❌ No symlinks found"
-          
-          echo ""
-          echo "📊 Installation summary:"
-          echo "- Total files in /opt/fortify: $(find /opt/fortify -type f 2>/dev/null | wc -l)"
-          echo "- Total directories in /opt/fortify: $(find /opt/fortify -type d 2>/dev/null | wc -l)"
-          echo "- sourceanalyzer found: $(find /opt/fortify -name 'sourceanalyzer' -type f 2>/dev/null | wc -l)"
-          echo "- fortifyclient found: $(find /opt/fortify -name 'fortifyclient' -type f 2>/dev/null | wc -l)"
+          echo "✅ All Fortify components installed successfully"
           
       - name: Verify Fortify Installation
         run: |
@@ -668,16 +409,10 @@ jobs:
           echo "" >> /tmp/email_content.txt
           echo "This is an automated notification from the Fortify Security Scan workflow." >> /tmp/email_content.txt
           
-          # Send email using AWS SES or SMTP
           echo "📧 Sending email notification to ${{ env.NOTIFICATION_EMAIL }}..."
-          
-          # For now, we'll use a simple notification method
-          # In production, you might want to use AWS SES or your SMTP server
           echo "Email notification content prepared:"
           cat /tmp/email_content.txt
-          
-          echo "✅ Email notification prepared (content shown above)"
-          echo "📧 Recipient: ${{ env.NOTIFICATION_EMAIL }}"
+          echo "✅ Email notification prepared"
           
       - name: Cleanup Temporary Files
         run: |
@@ -744,9 +479,4 @@ jobs:
           find /tmp -name "*.txt" -type f -delete 2>/dev/null || true
           find /tmp -name "*.json" -type f -delete 2>/dev/null || true
           
-          # Show final disk usage
-          echo "📊 Final disk usage after cleanup:"
-          df -h /tmp
-          
           echo "✅ Cleanup on failure completed"
-          echo "💡 Tip: The workflow failed, but disk space has been freed for future runs"
