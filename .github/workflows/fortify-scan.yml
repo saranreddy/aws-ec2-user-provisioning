@@ -81,41 +81,71 @@ jobs:
         run: |
           echo "=== Installing System Dependencies ==="
           
-          # Install Java and essential utilities
-          echo "🔧 Installing Java and utilities..."
+          # Install Java and ALL essential system utilities
+          echo "🔧 Installing Java and comprehensive system utilities..."
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             openjdk-17-jdk-headless \
             unzip \
             ca-certificates \
-            curl
+            curl \
+            coreutils \
+            findutils \
+            grep \
+            sed \
+            awk \
+            gawk \
+            bash \
+            procps \
+            util-linux \
+            file \
+            less \
+            vim-tiny \
+            nano \
+            wget \
+            git \
+            build-essential \
+            pkg-config
           
           # Verify Java installation
           echo "🔍 Verifying Java installation..."
           java -version
           
+          # Verify essential commands are now available
+          echo "🔍 Verifying essential system commands..."
+          which cp && echo "✅ cp command available"
+          which ls && echo "✅ ls command available"
+          which which && echo "✅ which command available"
+          which find && echo "✅ find command available"
+          which grep && echo "✅ grep command available"
+          which sed && echo "✅ sed command available"
+          which awk && echo "✅ awk command available"
+          which mkdir && echo "✅ mkdir command available"
+          which chmod && echo "✅ chmod command available"
+          which chown && echo "✅ chown command available"
+          
           # Clean up package cache to save space
           echo "🧹 Cleaning up package cache..."
           sudo apt-get clean
           
-          echo "✅ System dependencies installed and optimized"
+          echo "✅ All system dependencies and utilities installed successfully"
           
       - name: Setup System Environment
         run: |
           echo "=== Setting up System Environment ==="
           
-          # Ensure basic system commands are in PATH
-          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+          # Set comprehensive system PATH
+          export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:$PATH"
           echo "PATH=$PATH" >> $GITHUB_ENV
           
-          # Verify basic commands are available
-          echo "🔍 Verifying basic system commands..."
-          which cp && echo "✅ cp command available"
-          which ls && echo "✅ ls command available"
-          which mkdir && echo "✅ mkdir command available"
-          which chmod && echo "✅ chmod command available"
+          # Double-check that all essential commands are available
+          echo "🔍 Final verification of essential system commands..."
+          which cp && echo "✅ cp command available at: $(which cp)"
+          which ls && echo "✅ ls command available at: $(which ls)"
+          which which && echo "✅ which command available at: $(which which)"
+          which find && echo "✅ find command available at: $(which find)"
           
-          echo "✅ System environment configured"
+          echo "✅ System environment fully configured and verified"
           
       - name: Create Fortify Installation Directory
         run: |
@@ -263,20 +293,20 @@ jobs:
           echo "📋 Copying license to multiple Fortify locations..."
           
           # Location 1: SCA bin directory
-          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
           
           # Location 2: SCA root directory
-          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
           
           # Location 3: System-wide Fortify location (avoid self-copying)
           if [ "${{ env.FORTIFY_HOME }}" != "/opt/fortify" ]; then
-            sudo /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
+            sudo cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
           else
             echo "⚠️  Skipping system-wide copy (same location)"
           fi
           
           # Location 4: User home directory (Fortify sometimes looks here)
-          /bin/cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
           
           # Set multiple license path environment variables
           export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
