@@ -528,15 +528,39 @@ jobs:
             echo "📁 Contents of Core directory:"
             ls -la "${{ env.FORTIFY_SCA_HOME }}/Core/" | head -10
             
-            # Check for specific rules files
-            echo "🔍 Searching for rules files in Core:"
-            RULES_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null)
+            # Check for actual Fortify rules files (only .bin files, not configs or policies)
+            echo "🔍 Searching for actual Fortify rules files in Core:"
+            echo "Note: Only .bin files are actual rules; scan-policy files are just policies"
+            
+            # Find only .bin files (actual Fortify rules)
+            RULES_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" 2>/dev/null)
             
             if [ -n "$RULES_FILES" ]; then
-              echo "✅ Found rules files in Core:"
+              echo "✅ Found actual Fortify rules files (.bin) in Core:"
               echo "$RULES_FILES" | head -10
               RULES_COUNT=$(echo "$RULES_FILES" | wc -l)
-              echo "📊 Total rules files found: $RULES_COUNT"
+              echo "📊 Total actual rules files found: $RULES_COUNT"
+              
+              # Validate rules files (check they're not empty and have reasonable size)
+              echo "🔍 Validating rules files..."
+              VALID_RULES_COUNT=0
+              for rule_file in $RULES_FILES; do
+                if [ -s "$rule_file" ] && [ $(stat -c%s "$rule_file") -gt 1024 ]; then
+                  VALID_RULES_COUNT=$((VALID_RULES_COUNT + 1))
+                  echo "   ✅ $rule_file - Valid (size: $(stat -c%s "$rule_file") bytes)"
+                else
+                  echo "   ⚠️  $rule_file - Invalid (empty or too small)"
+                fi
+              done
+              
+              if [ $VALID_RULES_COUNT -gt 0 ]; then
+                echo "📊 Valid rules files: $VALID_RULES_COUNT out of $RULES_COUNT"
+                RULES_COUNT=$VALID_RULES_COUNT
+              else
+                echo "❌ No valid rules files found - all .bin files are invalid"
+                RULES_FILES=""
+                RULES_COUNT=0
+              fi
               
               FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
               echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
@@ -551,11 +575,22 @@ jobs:
              
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
             echo "🔍 Found core directory at: ${{ env.FORTIFY_SCA_HOME }}/core"
-            FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
-            echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
-            CUSTOM_RULES_AVAILABLE="true"
-            RULES_SOURCE="core directory"
-            echo "✅ Custom rules path set to: $FORTIFY_RULES_PATH"
+            
+            # Check for actual Fortify rules files in core directory
+            CORE_RULES_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/core" -name "*.bin" 2>/dev/null)
+            if [ -n "$CORE_RULES_FILES" ]; then
+              CORE_RULES_COUNT=$(echo "$CORE_RULES_FILES" | wc -l)
+              echo "✅ Found $CORE_RULES_COUNT rules files in core directory"
+              
+              FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
+              echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+              CUSTOM_RULES_AVAILABLE="true"
+              RULES_SOURCE="core directory"
+              RULES_COUNT=$CORE_RULES_COUNT
+              echo "✅ Custom rules path set to: $FORTIFY_RULES_PATH"
+            else
+              echo "⚠️  core directory exists but contains no .bin rules files"
+            fi
           else
             echo "⚠️  No custom rules directory found"
           fi
@@ -579,6 +614,119 @@ jobs:
           echo "CUSTOM_RULES_AVAILABLE=$CUSTOM_RULES_AVAILABLE" >> $GITHUB_ENV
           echo "RULES_SOURCE=$RULES_SOURCE" >> $GITHUB_ENV
           echo "RULES_COUNT=$RULES_COUNT" >> $GITHUB_ENV
+          
+      - name: Test Custom Rules (if available)
+        if: inputs.scan_type == 'source-code' && env.CUSTOM_RULES_AVAILABLE == 'true'
+        run: |
+          echo "=== Testing Custom Rules Before Use ==="
+          
+          # Ensure PATH includes system binaries and Fortify
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          echo "🔍 Testing custom rules at: ${{ env.FORTIFY_RULES_PATH }}"
+          echo "📊 Rules count: ${{ env.RULES_COUNT }}"
+          
+          # Create a temporary test directory
+          TEST_DIR="/tmp/fortify-rules-test"
+          mkdir -p $TEST_DIR
+          cd $TEST_DIR
+          
+          # Create a minimal test file
+          echo "// Test file for rules validation" > test.java
+          
+          echo "🧪 Testing rules with minimal scan..."
+          
+          # Try to run a minimal scan with custom rules
+          if sourceanalyzer -b test-rules-validation \
+            -source 1.8 \
+            -rules "${{ env.FORTIFY_RULES_PATH }}" \
+            test.java; then
+            
+            echo "✅ Custom rules validation SUCCESSFUL"
+            echo "CUSTOM_RULES_VALID=true" >> $GITHUB_ENV
+            echo "RULES_VALIDATION_RESULT=passed" >> $GITHUB_ENV
+            
+          else
+            echo "❌ Custom rules validation FAILED"
+            echo "CUSTOM_RULES_VALID=false" >> $GITHUB_ENV
+            echo "RULES_VALIDATION_RESULT=failed" >> $GITHUB_ENV
+            
+            # Log the specific error
+            echo "🔍 Rules validation error details:"
+            sourceanalyzer -b test-rules-validation \
+              -source 1.8 \
+              -rules "${{ env.FORTIFY_RULES_PATH }}" \
+              test.java 2>&1 | head -10 || echo "Could not capture error details"
+          fi
+          
+          # Clean up test artifacts
+          sourceanalyzer -b test-rules-validation -clean 2>/dev/null || true
+          rm -rf $TEST_DIR
+          
+          echo "✅ Rules testing completed"
+          
+      - name: Debug Rules File Analysis
+        if: inputs.scan_type == 'source-code'
+        run: |
+          echo "=== Debug Rules File Analysis ==="
+          
+          # Ensure PATH includes system binaries and Fortify
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          echo "🔍 Analyzing what's actually in the Core directory..."
+          
+          if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
+            echo "📁 Core directory contents analysis:"
+            
+            # Count different file types
+            echo "📊 File type breakdown:"
+            find "${{ env.FORTIFY_SCA_HOME }}/Core" -type f 2>/dev/null | sed 's/.*\.//' | sort | uniq -c | sort -nr | head -10
+            
+            echo ""
+            echo "🔍 Looking for actual .bin rules files:"
+            BIN_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -type f 2>/dev/null)
+            if [ -n "$BIN_FILES" ]; then
+              echo "✅ Found .bin files:"
+              for file in $BIN_FILES; do
+                SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                echo "   - $file (size: $SIZE bytes)"
+              done
+            else
+              echo "❌ No .bin files found in Core directory"
+            fi
+            
+            echo ""
+            echo "🔍 Looking for scan-policy files (these are NOT rules):"
+            POLICY_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*scan-policy*" -type f 2>/dev/null)
+            if [ -n "$POLICY_FILES" ]; then
+              echo "⚠️  Found scan-policy files (these are policies, not rules):"
+              for file in $POLICY_FILES; do
+                SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                echo "   - $file (size: $SIZE bytes)"
+              done
+            fi
+            
+            echo ""
+            echo "🔍 Looking for other potential rules files:"
+            OTHER_FILES=$(find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*rules*" -o -name "*core*" -type f 2>/dev/null | grep -v "scan-policy" | head -5)
+            if [ -n "$OTHER_FILES" ]; then
+              echo "ℹ️  Found other potential rules-related files:"
+              for file in $OTHER_FILES; do
+                SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                echo "   - $file (size: $SIZE bytes)"
+              done
+            fi
+            
+          else
+            echo "❌ Core directory not found"
+          fi
+          
+          echo ""
+          echo "💡 Analysis Summary:"
+          echo "- .bin files are actual Fortify rules"
+          echo "- scan-policy files are just policies, not rules"
+          echo "- Other files are supporting components, not rules"
+          echo "- If no .bin files exist, Fortify will use built-in rules"
           
           # Show Fortify environment
           echo ""
@@ -686,18 +834,21 @@ jobs:
           echo "🧹 Cleaning previous scan artifacts..."
           sourceanalyzer -b fortify-scan -clean
           
-          # Determine which rules to use and log the decision
+          # Progressive Rules Testing with Fallback
           echo ""
-          echo "🔧 === Rules Selection Decision ==="
+          echo "🔧 === Progressive Rules Selection ==="
           
-          if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
-            echo "✅ Using CUSTOM RULES"
+          # Check if we have custom rules and they passed validation
+          if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && [ "${{ env.CUSTOM_RULES_VALID }}" = "true" ] && [ -n "${{ env.FORTIFY_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_RULES_PATH }}" ]; then
+            echo "✅ Using VALIDATED CUSTOM RULES"
             echo "   - Source: ${{ env.RULES_SOURCE }}"
             echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
             echo "   - Count: ${{ env.RULES_COUNT }} rules files"
+            echo "   - Validation: PASSED"
             echo "   - Command: sourceanalyzer with -rules parameter"
             
-            sourceanalyzer -b fortify-scan \
+            # Try custom rules first
+            if sourceanalyzer -b fortify-scan \
               -source 1.8 \
               -cp "**/*.jar" \
               -cp "**/*.class" \
@@ -710,12 +861,46 @@ jobs:
               -cp "**/*.sh" \
               -cp "**/*.py" \
               -rules "${{ env.FORTIFY_RULES_PATH }}" \
-              .
+              .; then
               
+              echo "✅ Custom rules scan completed successfully"
+              RULES_USED="custom_validated"
+              
+            else
+              echo "❌ Custom rules scan failed - falling back to built-in rules"
+              echo "⚠️  Using FORTIFY BUILT-IN RULES (fallback)"
+              echo "   - Reason: Custom rules failed during scan execution"
+              echo "   - Note: Built-in rules are comprehensive and up-to-date"
+              echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
+              
+              sourceanalyzer -b fortify-scan \
+                -source 1.8 \
+                -cp "**/*.jar" \
+                -cp "**/*.class" \
+                -cp "**/*.py" \
+                -cp "**/*.js" \
+                -cp "**/*.ts" \
+                -cp "**/*.tf" \
+                -cp "**/*.yml" \
+                -cp "**/*.yaml" \
+                -cp "**/*.sh" \
+                -cp "**/*.py" \
+                .
+              
+              RULES_USED="built_in_fallback"
+            fi
+            
           else
             echo "⚠️  Using FORTIFY BUILT-IN RULES"
-            echo "   - Reason: Custom rules not available or invalid"
+            if [ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "false" ]; then
+              echo "   - Reason: No custom rules available"
+            elif [ "${{ env.CUSTOM_RULES_VALID }}" = "false" ]; then
+              echo "   - Reason: Custom rules failed validation"
+            else
+              echo "   - Reason: Custom rules not properly configured"
+            fi
             echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
+            echo "   - Custom Rules Valid: ${{ env.CUSTOM_RULES_VALID }}"
             echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
             echo "   - Note: Built-in rules are comprehensive and up-to-date"
             echo "   - Command: sourceanalyzer without -rules parameter (uses defaults)"
@@ -733,7 +918,12 @@ jobs:
               -cp "**/*.sh" \
               -cp "**/*.py" \
               .
+            
+            RULES_USED="built_in_primary"
           fi
+          
+          # Export which rules were actually used
+          echo "RULES_USED=$RULES_USED" >> $GITHUB_ENV
           
           if [ $? -eq 0 ]; then
             echo "✅ Source code analysis completed successfully"
@@ -770,9 +960,31 @@ jobs:
           echo ""
           echo "📊 === Source Code Scan Summary ==="
           echo "✅ Scan Status: COMPLETED SUCCESSFULLY"
-          echo "🔧 Rules Used: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "Custom Rules from ${{ env.RULES_SOURCE }}" || echo "Fortify Built-in Rules")"
-          echo "📁 Rules Path: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "${{ env.FORTIFY_RULES_PATH }}" || echo "Built-in (no path)")"
-          echo "📊 Rules Count: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "${{ env.RULES_COUNT }}" || echo "Built-in (countless)")"
+          
+          # Show which rules were actually used
+          case "${{ env.RULES_USED }}" in
+            "custom_validated")
+              echo "🔧 Rules Used: VALIDATED CUSTOM RULES"
+              echo "   - Source: ${{ env.RULES_SOURCE }}"
+              echo "   - Path: ${{ env.FORTIFY_RULES_PATH }}"
+              echo "   - Count: ${{ env.RULES_COUNT }} rules files"
+              echo "   - Validation: PASSED"
+              ;;
+            "built_in_fallback")
+              echo "🔧 Rules Used: FORTIFY BUILT-IN RULES (FALLBACK)"
+              echo "   - Reason: Custom rules failed during scan execution"
+              echo "   - Note: Built-in rules are comprehensive and up-to-date"
+              ;;
+            "built_in_primary")
+              echo "🔧 Rules Used: FORTIFY BUILT-IN RULES (PRIMARY)"
+              echo "   - Reason: Custom rules not available or failed validation"
+              echo "   - Note: Built-in rules are comprehensive and up-to-date"
+              ;;
+            *)
+              echo "🔧 Rules Used: UNKNOWN (check logs for details)"
+              ;;
+          esac
+          
           echo "🎯 Installation Method: ${{ env.SCA_INSTALL_METHOD }}"
           echo "🔧 Apps & Tools: ${{ env.APPS_TOOLS_INSTALLED }}"
           echo "📁 Scan Directory: $SCAN_DIR"
@@ -966,7 +1178,9 @@ jobs:
           echo "   - Custom Rules Available: ${{ env.CUSTOM_RULES_AVAILABLE }}"
           echo "   - Rules Source: ${{ env.RULES_SOURCE }}"
           echo "   - Rules Count: ${{ env.RULES_COUNT }}"
+          echo "   - Rules Validation: ${{ env.RULES_VALIDATION_RESULT }}"
           echo "   - Final Rules Used: $([ "${{ env.CUSTOM_RULES_AVAILABLE }}" = "true" ] && echo "Custom Rules" || echo "Built-in Rules")"
+          echo "   - Rules Usage Type: ${{ env.RULES_USED }}"
           
           echo ""
           echo "📊 Scan Results:"
