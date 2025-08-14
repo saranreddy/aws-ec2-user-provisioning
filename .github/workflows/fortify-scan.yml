@@ -879,31 +879,53 @@ jobs:
               if [ "$EXTRACTED_FILES" -gt 0 ] && [ "$EXTRACTED_SIZE" -gt 1000000 ]; then
                 echo "✅ Extraction verification passed"
                 
-                # Look for actual Fortify rule files
-                echo "🔍 Searching for Fortify rule files in extracted contents..."
-                RULE_FILES=$(find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) 2>/dev/null)
+                              # Look for actual Fortify rule files
+              echo "🔍 Searching for Fortify rule files in extracted contents..."
+              RULE_FILES=$(find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) 2>/dev/null)
+              
+              if [ -n "$RULE_FILES" ]; then
+                echo "✅ Found Fortify rule files:"
+                echo "$RULE_FILES" | head -5 | while read -r file; do
+                  SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                  echo "   - $file (size: $SIZE bytes)"
+                done
                 
-                if [ -n "$RULE_FILES" ]; then
-                  echo "✅ Found Fortify rule files:"
-                  echo "$RULE_FILES" | head -5 | while read -r file; do
-                    SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
-                    echo "   - $file (size: $SIZE bytes)"
-                  done
-                  
-                  # Count and size the actual rule files
-                  for file in $RULE_FILES; do
-                    if [ -s "$file" ]; then
-                      RULES_COUNT=$((RULES_COUNT + 1))
-                      RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
-                    fi
-                  done
-                  
-                  ACTUAL_RULES_FOUND="true"
-                  echo "✅ Successfully extracted $RULES_COUNT Fortify rule files"
-                  echo "   - Total rules size: $RULES_SIZE bytes"
-                else
-                  echo "⚠️  No rule files found in extracted contents"
-                fi
+                # Count and size the actual rule files
+                for file in $RULE_FILES; do
+                  if [ -s "$file" ]; then
+                    RULES_COUNT=$((RULES_COUNT + 1))
+                    RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
+                  fi
+                done
+                
+                # Reorganize rules for Fortify compatibility
+                echo ""
+                echo "🔧 Reorganizing rules for Fortify compatibility..."
+                echo "   - Current structure: Rules in subdirectories (java13/, cpp/, etc.)"
+                echo "   - Target structure: Rules directly accessible for Fortify"
+                
+                # Create a Fortify-compatible rules structure
+                FORTIFY_RULES_DIR="$RULES_DIR/fortify-rules"
+                mkdir -p "$FORTIFY_RULES_DIR"
+                
+                # Copy all rule files to the main rules directory for Fortify access
+                echo "📁 Copying rules to Fortify-compatible location..."
+                find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) -exec cp {} "$FORTIFY_RULES_DIR/" \;
+                
+                # Verify the reorganization
+                REORGANIZED_COUNT=$(find "$FORTIFY_RULES_DIR" -type f 2>/dev/null | wc -l)
+                echo "✅ Reorganization complete: $REORGANIZED_COUNT rules in Fortify-compatible location"
+                
+                # Update the rules directory to use the reorganized structure
+                RULES_DIR="$FORTIFY_RULES_DIR"
+                
+                ACTUAL_RULES_FOUND="true"
+                echo "✅ Successfully extracted and reorganized $RULES_COUNT Fortify rule files"
+                echo "   - Total rules size: $RULES_SIZE bytes"
+                echo "   - Fortify-compatible location: $RULES_DIR"
+              else
+                echo "⚠️  No rule files found in extracted contents"
+              fi
               else
                 echo "❌ Extraction verification failed"
                 SCA_SAMPLES_EXTRACTED="false"
