@@ -1041,7 +1041,7 @@ jobs:
             echo "✅ Actual Fortify rules found and ready"
             echo "   - Rules Count: $RULES_COUNT"
             echo "   - Total Size: $RULES_SIZE bytes"
-            echo "   - Source: $([ "$SCA_SAMPLES_EXTRACTED" = "true" ] && echo "SCA Samples from S3" || echo "Installation search")"
+            echo "   - Source: $([ "$SCANCENTRAL_EXTRACTED" = "true" ] && echo "ScanCentral Controller from S3" || echo "Installation search")"
             echo "   - Status: Ready for Fortify operations"
           else
             echo "⚠️  No actual rules found, created minimal structure"
@@ -1058,8 +1058,8 @@ jobs:
           echo "ACTUAL_RULES_FOUND=$ACTUAL_RULES_FOUND" >> $GITHUB_ENV
           echo "GUARANTEED_RULES_COUNT=$RULES_COUNT" >> $GITHUB_ENV
           echo "GUARANTEED_RULES_SIZE=$RULES_SIZE" >> $GITHUB_ENV
-          echo "SCA_SAMPLES_DOWNLOADED=$SCA_SAMPLES_DOWNLOADED" >> $GITHUB_ENV
-          echo "SCA_SAMPLES_EXTRACTED=$SCA_SAMPLES_EXTRACTED" >> $GITHUB_ENV
+          echo "SCANCENTRAL_DOWNLOADED=$SCANCENTRAL_DOWNLOADED" >> $GITHUB_ENV
+          echo "SCANCENTRAL_EXTRACTED=$SCANCENTRAL_EXTRACTED" >> $GITHUB_ENV
           
           echo "✅ Fortify built-in rules extraction completed"
           echo "📁 Guaranteed rules path: $RULES_DIR"
@@ -1774,8 +1774,8 @@ jobs:
           echo "   - Custom Scan Success: ${{ env.CUSTOM_SCAN_SUCCESS }}"
           echo "   - Custom Report Success: ${{ env.CUSTOM_REPORT_SUCCESS }}"
           echo "   - Fallback Triggered: ${{ env.FALLBACK_TRIGGERED }}"
-          echo "   - SCA Samples Downloaded: ${{ env.SCA_SAMPLES_DOWNLOADED }}"
-          echo "   - SCA Samples Extracted: ${{ env.SCA_SAMPLES_EXTRACTED }}"
+          echo "   - ScanCentral Controller Downloaded: ${{ env.SCANCENTRAL_DOWNLOADED }}"
+          echo "   - ScanCentral Controller Extracted: ${{ env.SCANCENTRAL_EXTRACTED }}"
           echo "   - Guaranteed Rules Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
           echo "   - Guaranteed Rules Count: ${{ env.GUARANTEED_RULES_COUNT }}"
           echo "   - Guaranteed Rules Size: ${{ env.GUARANTEED_RULES_SIZE }} bytes"
