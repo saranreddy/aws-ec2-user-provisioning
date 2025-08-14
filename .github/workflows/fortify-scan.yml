@@ -111,7 +111,7 @@ jobs:
           
           # Download license file
           echo "📥 Downloading Fortify license..."
-          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/ot-package-sign.pub" ${{ env.FORTIFY_HOME }}/fortify.license
+          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/fortify-license" ${{ env.FORTIFY_HOME }}/fortify.license
           
           # Make installer executable
           chmod +x ${{ env.FORTIFY_HOME }}/*.run
