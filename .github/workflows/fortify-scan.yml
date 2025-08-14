@@ -105,9 +105,9 @@ jobs:
           echo "Downloading from S3 bucket: $S3_BUCKET"
           echo "Fortify version: $FORTIFY_VERSION"
           
-          # Download Fortify SCA installer
-          echo "📥 Downloading Fortify SCA installer..."
-          aws s3 cp s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/Fortify_SCA_$FORTIFY_VERSION\_linux_x64.run ${{ env.FORTIFY_HOME }}/
+          # Download Fortify Apps and Tools installer
+          echo "📥 Downloading Fortify Apps and Tools installer..."
+          aws s3 cp s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/Fortify_Apps_and_Tools_$FORTIFY_VERSION\_linux_x64.run ${{ env.FORTIFY_HOME }}/
           
           # Download license file
           echo "📥 Downloading Fortify license..."
@@ -126,7 +126,7 @@ jobs:
           cd ${{ env.FORTIFY_HOME }}
           
           echo "🔍 Checking available installer options..."
-          ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --help || echo "Installer help not available, trying basic installation"
+          ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --help || echo "Installer help not available, trying basic installation"
           
       - name: Install Fortify SCA
         run: |
@@ -138,13 +138,13 @@ jobs:
           echo "🔧 Installing Fortify SCA..."
           
           # Method 1: Try with installdir
-          if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
-            echo "✅ Fortify SCA installed successfully with installdir"
+          if ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
+            echo "✅ Fortify Apps and Tools installed successfully with installdir"
           else
             echo "⚠️  installdir failed, trying without directory specification..."
             # Method 2: Try without directory specification (install to default location)
-            if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
-              echo "✅ Fortify SCA installed successfully to default location"
+            if ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
+              echo "✅ Fortify Apps and Tools installed successfully to default location"
               # Update the SCA home to default location
               echo "export FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
             else
