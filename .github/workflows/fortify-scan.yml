@@ -54,6 +54,26 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        
+      - name: Setup System Environment
+        run: |
+          echo "=== Setting up System Environment ==="
+          
+          # Set PATH to include all system binaries
+          echo "PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH" >> $GITHUB_ENV
+          
+          # Verify basic commands are available
+          echo "🔍 Verifying basic system commands:"
+          which cp || echo "❌ cp not found"
+          which mv || echo "❌ mv not found"
+          which rm || echo "❌ rm not found"
+          which mkdir || echo "❌ mkdir not found"
+          which ls || echo "❌ ls not found"
+          which head || echo "❌ head not found"
+          which find || echo "❌ find not found"
+          which grep || echo "❌ grep not found"
+          
+          echo "✅ System environment setup completed"
           
       - name: Set Role Name
         run: |
@@ -408,8 +428,15 @@ jobs:
         run: |
           echo "=== Configuring Fortify Rules and Environment ==="
           
-          # Add Fortify to PATH
-          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          # Verify critical commands are available
+          echo "🔍 Verifying commands before rules configuration:"
+          which head || echo "❌ head not found in PATH: $PATH"
+          which ls || echo "❌ ls not found in PATH: $PATH"
+          which find || echo "❌ find not found in PATH: $PATH"
+          which grep || echo "❌ grep not found in PATH: $PATH"
           
           echo "🔍 Locating Fortify rules files..."
           
@@ -473,8 +500,14 @@ jobs:
         run: |
           echo "=== Debugging Fortify License Issues ==="
           
-          # Add Fortify to PATH
-          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          # Verify critical commands are available
+          echo "🔍 Verifying commands before license debugging:"
+          which ls || echo "❌ ls not found in PATH: $PATH"
+          which find || echo "❌ find not found in PATH: $PATH"
+          which grep || echo "❌ grep not found in PATH: $PATH"
           
           echo "🔍 Current working directory: $(pwd)"
           echo "🔍 FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
@@ -535,8 +568,8 @@ jobs:
         run: |
           echo "=== Running Fortify Source Code Scan ==="
           
-          # Add Fortify to PATH
-          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
           export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
           
           # Create scan directory
@@ -630,8 +663,8 @@ jobs:
         run: |
           echo "=== Running Fortify Dependency Check ==="
           
-          # Add Fortify to PATH
-          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
           export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
           
           # Create scan directory
@@ -685,8 +718,8 @@ jobs:
         run: |
           echo "=== Running Full Fortify Scan ==="
           
-          # Add Fortify to PATH
-          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
           export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
           
           # Create scan directory
