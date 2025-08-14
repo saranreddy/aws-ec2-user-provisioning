@@ -164,7 +164,7 @@ jobs:
             if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
               echo "✅ Fortify SCA installed successfully to default location"
               # Update the SCA home to default location
-              echo "export FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
+              echo "FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
             else
               echo "❌ Fortify SCA installation failed"
               exit 1
@@ -179,8 +179,8 @@ jobs:
           fi
           
           # Set environment variables
-          echo "export FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
-          echo "export PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
+          echo "FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
+          echo "PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
           
           echo ""
           echo "🔧 Installing Fortify Apps and Tools (contains reporting tools)..."
@@ -221,8 +221,8 @@ jobs:
             echo "✅ Found sourceanalyzer at: $SOURCEANALYZER_PATH"
             ACTUAL_SCA_HOME=$(dirname $(dirname "$SOURCEANALYZER_PATH"))
             echo "✅ Actual SCA home: $ACTUAL_SCA_HOME"
-            echo "export FORTIFY_SCA_HOME=$ACTUAL_SCA_HOME" >> $GITHUB_ENV
-            echo "export PATH=\$PATH:\$ACTUAL_SCA_HOME/bin" >> $GITHUB_ENV
+            echo "FORTIFY_SCA_HOME=$ACTUAL_SCA_HOME" >> $GITHUB_ENV
+            echo "PATH=\$PATH:\$ACTUAL_SCA_HOME/bin" >> $GITHUB_ENV
             echo "✅ Updated FORTIFY_SCA_HOME to: $ACTUAL_SCA_HOME"
           else
             echo "❌ sourceanalyzer not found anywhere in /opt"
@@ -261,9 +261,9 @@ jobs:
           export FORTIFY_LICENSE="${{ env.FORTIFY_SCA_HOME }}/fortify.license"
           export FORTIFY_LICENSE_FILE="${{ env.FORTIFY_SCA_HOME }}/fortify.license"
           
-          echo "export FORTIFY_LICENSE_PATH=$FORTIFY_LICENSE_PATH" >> $GITHUB_ENV
-          echo "export FORTIFY_LICENSE=$FORTIFY_LICENSE" >> $GITHUB_ENV
-          echo "export FORTIFY_LICENSE_FILE=$FORTIFY_LICENSE_FILE" >> $GITHUB_ENV
+          echo "FORTIFY_LICENSE_PATH=$FORTIFY_LICENSE_PATH" >> $GITHUB_ENV
+          echo "FORTIFY_LICENSE=$FORTIFY_LICENSE" >> $GITHUB_ENV
+          echo "FORTIFY_LICENSE_FILE=$FORTIFY_LICENSE_FILE" >> $GITHUB_ENV
           
           # Verify license file exists and show its properties
           echo "🔍 License file details:"
@@ -355,7 +355,7 @@ jobs:
           echo "🔧 Setting rules path..."
           if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
             FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
-            echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+            echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
             echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
             
             # Debug: Show what's in the Core directory
@@ -368,7 +368,7 @@ jobs:
             
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
             FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
-            echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+            echo "FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
             echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
           else
             echo "⚠️  No rules directory found, will use default"
