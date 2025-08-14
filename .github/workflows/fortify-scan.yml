@@ -77,28 +77,22 @@ jobs:
           aws sts get-caller-identity
           echo "✅ AWS credentials verified"
           
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'maven'
-          
       - name: Install System Dependencies
         run: |
           echo "=== Installing System Dependencies ==="
           
-          # Java is already installed by actions/setup-java
-          echo "✅ Java already installed via actions/setup-java, checking version..."
-          java -version
-          
-          # Install only essential utilities
-          echo "🔧 Installing essential utilities..."
+          # Install Java and essential utilities
+          echo "🔧 Installing Java and utilities..."
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
+            openjdk-17-jdk-headless \
             unzip \
             ca-certificates \
             curl
+          
+          # Verify Java installation
+          echo "🔍 Verifying Java installation..."
+          java -version
           
           # Clean up package cache to save space
           echo "🧹 Cleaning up package cache..."
