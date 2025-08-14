@@ -340,7 +340,7 @@ jobs:
           echo ""
           echo "🔧 Setting rules path..."
           if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
-            export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
+            FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
             echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
             echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
             
@@ -353,7 +353,7 @@ jobs:
             find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | head -10 || echo "No specific rules files found"
             
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
-            export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
+            FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
             echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
             echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
           else
@@ -364,6 +364,16 @@ jobs:
           echo ""
           echo "🔍 Fortify environment variables:"
           env | grep -i fortify || echo "No Fortify environment variables found"
+          
+          # Verify rules path is set
+          echo ""
+          echo "🔍 Verifying FORTIFY_RULES_PATH is set:"
+          if [ -n "$FORTIFY_RULES_PATH" ]; then
+            echo "✅ FORTIFY_RULES_PATH is set to: $FORTIFY_RULES_PATH"
+            echo "✅ Rules directory exists: $([ -d "$FORTIFY_RULES_PATH" ] && echo "YES" || echo "NO")"
+          else
+            echo "❌ FORTIFY_RULES_PATH is not set"
+          fi
           
       - name: Debug Fortify License Issues
         if: inputs.scan_type == 'source-code'
