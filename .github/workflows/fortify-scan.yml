@@ -239,6 +239,52 @@ jobs:
           
           echo "✅ Fortify SCA verified successfully"
           
+      - name: Configure Fortify Rules and Environment
+        if: inputs.scan_type == 'source-code'
+        run: |
+          echo "=== Configuring Fortify Rules and Environment ==="
+          
+          # Add Fortify to PATH
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          echo "🔍 Locating Fortify rules files..."
+          
+          # Find rules files in various locations
+          echo "--- Searching for rules files ---"
+          find /opt/fortify -name "*.bin" -o -name "*rules*" -o -name "*core*" 2>/dev/null | head -10 || echo "No rules files found in /opt/fortify"
+          
+          # Look for specific Fortify rules directories
+          echo ""
+          echo "--- Checking common rules locations ---"
+          for dir in "${{ env.FORTIFY_SCA_HOME }}/Core" "${{ env.FORTIFY_SCA_HOME }}/core" "${{ env.FORTIFY_SCA_HOME }}/Rules" "${{ env.FORTIFY_SCA_HOME }}/rules"; do
+            if [ -d "$dir" ]; then
+              echo "✅ Found rules directory: $dir"
+              ls -la "$dir" | head -5
+            else
+              echo "❌ Not found: $dir"
+            fi
+          done
+          
+          # Set rules path environment variable
+          echo ""
+          echo "🔧 Setting rules path..."
+          if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
+            export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/Core"
+            echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+            echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
+          elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
+            export FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
+            echo "export FORTIFY_RULES_PATH=$FORTIFY_RULES_PATH" >> $GITHUB_ENV
+            echo "✅ Rules path set to: $FORTIFY_RULES_PATH"
+          else
+            echo "⚠️  No rules directory found, will use default"
+          fi
+          
+          # Show Fortify environment
+          echo ""
+          echo "🔍 Fortify environment variables:"
+          env | grep -i fortify || echo "No Fortify environment variables found"
+          
       - name: Debug Fortify License Issues
         if: inputs.scan_type == 'source-code'
         run: |
@@ -335,6 +381,7 @@ jobs:
             -cp "**/*.yaml" \
             -cp "**/*.sh" \
             -cp "**/*.py" \
+            -rules "${{ env.FORTIFY_RULES_PATH }}" \
             .
           
           if [ $? -eq 0 ]; then
