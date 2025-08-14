@@ -1047,14 +1047,17 @@ jobs:
         run: |
           echo "=== Verifying Rules Extraction Results ==="
           
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           # Check if the guaranteed rules directory exists and has content
           RULES_DIR="/opt/fortify/guaranteed-rules"
           
           if [ -d "$RULES_DIR" ]; then
             echo "✅ Guaranteed rules directory exists: $RULES_DIR"
             
-            # Count files and total size
-            FILE_COUNT=$(find "$RULES_DIR" -type f 2>/dev/null | wc -l)
+            # Count files and total size (using more reliable commands)
+            FILE_COUNT=$(find "$RULES_DIR" -type f 2>/dev/null | grep -c . || echo 0)
             TOTAL_SIZE=$(du -sb "$RULES_DIR" 2>/dev/null | cut -f1 || echo 0)
             
             echo "📊 Directory contents:"
