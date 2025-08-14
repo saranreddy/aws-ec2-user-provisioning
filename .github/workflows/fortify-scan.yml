@@ -773,8 +773,18 @@ jobs:
             echo "ENHANCED_VALIDATION_PASSED=false" >> $GITHUB_ENV
           fi
           
+      - name: Debug Rules Extraction Step
+        if: inputs.scan_type == 'source-code'
+        run: |
+          echo "=== Debug: About to Extract Fortify Built-in Rules ==="
+          echo "✅ This step confirms the workflow is reaching the rules extraction phase"
+          echo "📁 Next step will download SCA Samples from S3"
+          echo "🔧 SCA Samples file: Fortify_SCA_Samples_24.2.0.zip"
+          echo "📊 Expected size: ~168.8 MB"
+          
       - name: Extract Fortify Built-in Rules
         if: inputs.scan_type == 'source-code'
+        id: extract-rules
         run: |
           echo "=== Extracting Fortify Built-in Rules ==="
           
