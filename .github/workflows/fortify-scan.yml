@@ -80,25 +80,11 @@ jobs:
       - name: Install System Dependencies
         run: |
           echo "=== Installing System Dependencies ==="
+          sudo apt-get install -y \
+            default-jdk \
+            unzip
           
-          # Install Java and essential utilities
-          echo "🔧 Installing Java and utilities..."
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            openjdk-17-jdk-headless \
-            unzip \
-            ca-certificates \
-            curl
-          
-          # Verify Java installation
-          echo "🔍 Verifying Java installation..."
-          java -version
-          
-          # Clean up package cache to save space
-          echo "🧹 Cleaning up package cache..."
-          sudo apt-get clean
-          
-          echo "✅ System dependencies installed and optimized"
+          echo "✅ System dependencies installed"
           
       - name: Create Fortify Installation Directory
         run: |
