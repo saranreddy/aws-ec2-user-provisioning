@@ -779,7 +779,7 @@ jobs:
           echo "=== Debug: About to Extract Fortify Built-in Rules ==="
           echo "✅ This step confirms the workflow is reaching the rules extraction phase"
           echo "📁 Next step will download SCA Samples from S3"
-          echo "🔧 SCA Samples file: Fortify_SCA_Samples_24.2.0.zip"
+          echo "🔧 ScanCentral Controller file: Fortify_ScanCentral_Controller_24.2.0_x64.zip"
           echo "📊 Expected size: ~168.8 MB"
           
       - name: Extract Fortify Built-in Rules
@@ -806,56 +806,56 @@ jobs:
           ACTUAL_RULES_FOUND="false"
           RULES_COUNT=0
           RULES_SIZE=0
-          SCA_SAMPLES_DOWNLOADED="false"
-          SCA_SAMPLES_EXTRACTED="false"
+          SCANCENTRAL_DOWNLOADED="false"
+          SCANCENTRAL_EXTRACTED="false"
           
           # S3 Configuration
           S3_BUCKET="aws-ec2-user-provisioning-security-files"
           S3_PATH="fortify/24.2.0/components"
-          SCA_SAMPLES_FILE="Fortify_SCA_Samples_24.2.0.zip"
-          S3_URI="s3://$S3_BUCKET/$S3_PATH/$SCA_SAMPLES_FILE"
+          SCANCENTRAL_FILE="Fortify_ScanCentral_Controller_24.2.0_x64.zip"
+          S3_URI="s3://$S3_BUCKET/$S3_PATH/$SCANCENTRAL_FILE"
           TEMP_DIR="/tmp/fortify-rules-extraction"
           
           # Create temporary directory
           mkdir -p $TEMP_DIR
           cd $TEMP_DIR
           
-          echo "📥 Step 1: Downloading SCA Samples from S3..."
+          echo "📥 Step 1: Downloading ScanCentral Controller from S3..."
           echo "   - S3 URI: $S3_URI"
-          echo "   - Local path: $TEMP_DIR/$SCA_SAMPLES_FILE"
+          echo "   - Local path: $TEMP_DIR/$SCANCENTRAL_FILE"
           
-          # Download SCA Samples with comprehensive error handling
-          if aws s3 cp "$S3_URI" "$TEMP_DIR/$SCA_SAMPLES_FILE" --quiet; then
-            echo "✅ SCA Samples download successful"
-            SCA_SAMPLES_DOWNLOADED="true"
+          # Download ScanCentral Controller with comprehensive error handling
+          if aws s3 cp "$S3_URI" "$TEMP_DIR/$SCANCENTRAL_FILE" --quiet; then
+            echo "✅ ScanCentral Controller download successful"
+            SCANCENTRAL_DOWNLOADED="true"
             
             # Verify file was downloaded and has content
-            if [ -f "$TEMP_DIR/$SCA_SAMPLES_FILE" ] && [ -s "$TEMP_DIR/$SCA_SAMPLES_FILE" ]; then
-              DOWNLOAD_SIZE=$(stat -c%s "$TEMP_DIR/$SCA_SAMPLES_FILE" 2>/dev/null || echo 0)
+            if [ -f "$TEMP_DIR/$SCANCENTRAL_FILE" ] && [ -s "$TEMP_DIR/$SCANCENTRAL_FILE" ]; then
+              DOWNLOAD_SIZE=$(stat -c%s "$TEMP_DIR/$SCANCENTRAL_FILE" 2>/dev/null || echo 0)
               echo "   - File size: $DOWNLOAD_SIZE bytes"
-              echo "   - Expected size: ~168.8 MB (176,947,200 bytes)"
+              echo "   - Expected size: ~94 MB (94,153 KB)"
               
-              if [ "$DOWNLOAD_SIZE" -gt 100000000 ]; then
+              if [ "$DOWNLOAD_SIZE" -gt 90000000 ]; then
                 echo "✅ File size verification passed (sufficiently large)"
               else
                 echo "⚠️  File size verification failed (too small, may be corrupted)"
-                SCA_SAMPLES_DOWNLOADED="false"
+                SCANCENTRAL_DOWNLOADED="false"
               fi
             else
               echo "❌ Downloaded file is empty or missing"
-              SCA_SAMPLES_DOWNLOADED="false"
+              SCANCENTRAL_DOWNLOADED="false"
             fi
           else
-            echo "❌ SCA Samples download failed"
+            echo "❌ ScanCentral Controller download failed"
             echo "   - Error: AWS S3 download command failed"
             echo "   - Check: S3 bucket access, file existence, AWS credentials"
-            SCA_SAMPLES_DOWNLOADED="false"
+            SCANCENTRAL_DOWNLOADED="false"
           fi
           
-          # Extract SCA Samples if download was successful
-          if [ "$SCA_SAMPLES_DOWNLOADED" = "true" ]; then
+          # Extract ScanCentral Controller if download was successful
+          if [ "$SCANCENTRAL_DOWNLOADED" = "true" ]; then
             echo ""
-            echo "📦 Step 2: Extracting SCA Samples ZIP file..."
+            echo "📦 Step 2: Extracting ScanCentral Controller ZIP file..."
             
             # Check if unzip is available
             if ! command -v unzip &> /dev/null; then
@@ -863,10 +863,10 @@ jobs:
               sudo apt-get update -qq && sudo apt-get install -y unzip
             fi
             
-            # Extract the ZIP file
-            if unzip -q "$TEMP_DIR/$SCA_SAMPLES_FILE" -d "$RULES_DIR/"; then
-              echo "✅ SCA Samples extraction successful"
-              SCA_SAMPLES_EXTRACTED="true"
+            # Extract the ZIP file completely
+            if unzip -q "$TEMP_DIR/$SCANCENTRAL_FILE" -d "$RULES_DIR/"; then
+              echo "✅ ScanCentral Controller extraction successful"
+              SCANCENTRAL_EXTRACTED="true"
               
               # Verify extraction results
               echo "🔍 Verifying extracted contents..."
@@ -879,38 +879,38 @@ jobs:
               if [ "$EXTRACTED_FILES" -gt 0 ] && [ "$EXTRACTED_SIZE" -gt 1000000 ]; then
                 echo "✅ Extraction verification passed"
                 
-                              # Look for actual Fortify rule files
-              echo "🔍 Searching for Fortify rule files in extracted contents..."
-              RULE_FILES=$(find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) 2>/dev/null)
-              
-              if [ -n "$RULE_FILES" ]; then
-                echo "✅ Found Fortify rule files:"
-                echo "$RULE_FILES" | head -5 | while read -r file; do
-                  SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
-                  echo "   - $file (size: $SIZE bytes)"
-                done
+                # Look for actual Fortify rule files
+                echo "🔍 Searching for Fortify rule files in extracted contents..."
+                RULE_FILES=$(find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.jar" \) 2>/dev/null)
                 
-                # Count and size the actual rule files
-                for file in $RULE_FILES; do
-                  if [ -s "$file" ]; then
-                    RULES_COUNT=$((RULES_COUNT + 1))
-                    RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
-                  fi
-                done
-                
-                # Reorganize rules for Fortify compatibility
-                echo ""
-                echo "🔧 Reorganizing rules for Fortify compatibility..."
-                echo "   - Current structure: Rules in subdirectories (java13/, cpp/, etc.)"
-                echo "   - Target structure: Rules directly accessible for Fortify"
-                
-                # Create a Fortify-compatible rules structure
-                FORTIFY_RULES_DIR="$RULES_DIR/fortify-rules"
-                mkdir -p "$FORTIFY_RULES_DIR"
+                if [ -n "$RULE_FILES" ]; then
+                  echo "✅ Found Fortify rule files:"
+                  echo "$RULE_FILES" | head -5 | while read -r file; do
+                    SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                    echo "   - $file (size: $SIZE bytes)"
+                  done
+                  
+                  # Count and size the actual rule files
+                  for file in $RULE_FILES; do
+                    if [ -s "$file" ]; then
+                      RULES_COUNT=$((RULES_COUNT + 1))
+                      RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
+                    fi
+                  done
+                  
+                  # Create a Fortify-compatible rules structure
+                  echo ""
+                  echo "🔧 Creating Fortify-compatible rules structure..."
+                  echo "   - Source: ScanCentral Controller extracted contents"
+                  echo "   - Target: Rules directly accessible for Fortify"
+                  
+                  # Create a Fortify-compatible rules directory
+                  FORTIFY_RULES_DIR="$RULES_DIR/fortify-rules"
+                  mkdir -p "$FORTIFY_RULES_DIR"
                 
                 # Copy all rule files to the main rules directory for Fortify access
                 echo "📁 Copying rules to Fortify-compatible location..."
-                find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) -exec cp {} "$FORTIFY_RULES_DIR/" \;
+                find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.jar" \) -exec cp {} "$FORTIFY_RULES_DIR/" \;
                 
                 # Verify the reorganization
                 REORGANIZED_COUNT=$(find "$FORTIFY_RULES_DIR" -type f 2>/dev/null | wc -l)
@@ -926,20 +926,20 @@ jobs:
               else
                 echo "⚠️  No rule files found in extracted contents"
               fi
-              else
-                echo "❌ Extraction verification failed"
-                SCA_SAMPLES_EXTRACTED="false"
-              fi
             else
-              echo "❌ SCA Samples extraction failed"
-              echo "   - Error: unzip command failed"
-              echo "   - Check: File integrity, disk space, permissions"
-              SCA_SAMPLES_EXTRACTED="false"
+              echo "❌ Extraction verification failed"
+              SCANCENTRAL_EXTRACTED="false"
             fi
+          else
+            echo "❌ ScanCentral Controller extraction failed"
+            echo "   - Error: unzip command failed"
+            echo "   - Check: File integrity, disk space, permissions"
+            SCANCENTRAL_EXTRACTED="false"
           fi
-          
-          # Fallback to deep search if SCA Samples failed
-          if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
+        fi
+        
+        # Fallback to deep search if ScanCentral Controller failed
+        if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
             echo ""
             echo "🔄 Fallback: Deep Fortify Rules Search in Installation..."
             echo "🔍 Searching for actual Fortify rules in installation..."
