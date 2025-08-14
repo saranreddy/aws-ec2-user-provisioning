@@ -166,13 +166,43 @@ jobs:
           
           # Find where Fortify was actually installed
           echo "🔍 Locating Fortify installation..."
-          find /opt -name "sourceanalyzer" 2>/dev/null | head -1 | while read path; do
-            echo "Found sourceanalyzer at: $path"
-            ACTUAL_SCA_HOME=$(dirname $(dirname "$path"))
-            echo "Actual SCA home: $ACTUAL_SCA_HOME"
+          
+          # Debug: Show what directories were created
+          echo "📁 Debug: Checking what was created in /opt/fortify:"
+          ls -la /opt/fortify/ || echo "No /opt/fortify directory found"
+          
+          echo ""
+          echo "📁 Debug: Checking what was created in FORTIFY_HOME (${{ env.FORTIFY_HOME }}):"
+          ls -la ${{ env.FORTIFY_HOME }}/ || echo "No files in FORTIFY_HOME"
+          
+          echo ""
+          echo "🔍 Debug: Searching for sourceanalyzer in entire /opt directory:"
+          find /opt -name "sourceanalyzer" 2>/dev/null | head -5 || echo "No sourceanalyzer found in /opt"
+          
+          echo ""
+          echo "🔍 Debug: Searching for any Fortify-related executables:"
+          find /opt -name "*fortify*" -o -name "*sourceanalyzer*" -o -name "*ReportGenerator*" 2>/dev/null | head -10 || echo "No Fortify executables found"
+          
+          # Try to find sourceanalyzer and set PATH
+          echo ""
+          echo "🔍 Debug: Attempting to locate sourceanalyzer..."
+          SOURCEANALYZER_PATH=$(find /opt -name "sourceanalyzer" 2>/dev/null | head -1)
+          
+          if [ -n "$SOURCEANALYZER_PATH" ]; then
+            echo "✅ Found sourceanalyzer at: $SOURCEANALYZER_PATH"
+            ACTUAL_SCA_HOME=$(dirname $(dirname "$SOURCEANALYZER_PATH"))
+            echo "✅ Actual SCA home: $ACTUAL_SCA_HOME"
             echo "export FORTIFY_SCA_HOME=$ACTUAL_SCA_HOME" >> $GITHUB_ENV
             echo "export PATH=\$PATH:\$ACTUAL_SCA_HOME/bin" >> $GITHUB_ENV
-          done
+            echo "✅ Updated FORTIFY_SCA_HOME to: $ACTUAL_SCA_HOME"
+          else
+            echo "❌ sourceanalyzer not found anywhere in /opt"
+            echo "🔍 Debug: Let's check what the installer actually created:"
+            echo "--- Contents of /opt/fortify (if exists): ---"
+            ls -la /opt/fortify/ 2>/dev/null || echo "Directory not found"
+            echo "--- Contents of FORTIFY_HOME: ---"
+            ls -la ${{ env.FORTIFY_HOME }}/ 2>/dev/null || echo "Directory not found"
+          fi
           
       - name: Configure Fortify License
         run: |
@@ -225,8 +255,21 @@ jobs:
         run: |
           echo "=== Verifying Fortify Installation ==="
           
+          # Debug: Show current environment
+          echo "🔍 Debug: Current FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }}"
+          echo "🔍 Debug: Current PATH: $PATH"
+          
           # Add Fortify to PATH for this session
           export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          echo "🔍 Debug: Updated PATH: $PATH"
+          
+          # Debug: Check if sourceanalyzer exists in the expected location
+          echo "🔍 Debug: Checking if sourceanalyzer exists in ${{ env.FORTIFY_SCA_HOME }}/bin:"
+          ls -la "${{ env.FORTIFY_SCA_HOME }}/bin/" 2>/dev/null || echo "Directory not found or empty"
+          
+          # Debug: Try to find sourceanalyzer again
+          echo "🔍 Debug: Searching for sourceanalyzer in PATH:"
+          which sourceanalyzer || echo "sourceanalyzer not found in PATH"
           
           # Test Fortify SCA
           echo "🧪 Testing Fortify SCA..."
@@ -234,6 +277,9 @@ jobs:
             echo "✅ Fortify SCA is working"
           else
             echo "❌ Fortify SCA test failed"
+            echo "🔍 Debug: Let's check what went wrong..."
+            echo "--- Final PATH: $PATH ---"
+            echo "--- Final FORTIFY_SCA_HOME: ${{ env.FORTIFY_SCA_HOME }} ---"
             exit 1
           fi
           
