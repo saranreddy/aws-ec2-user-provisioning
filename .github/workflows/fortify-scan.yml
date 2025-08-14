@@ -1,5 +1,4 @@
 name: Fortify Security Scan
-
 on:
   workflow_dispatch:
     inputs:
