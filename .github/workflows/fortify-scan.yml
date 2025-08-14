@@ -82,17 +82,8 @@ jobs:
           echo "=== Installing System Dependencies ==="
           sudo apt-get update
           sudo apt-get install -y \
-            wget \
-            curl \
-            unzip \
-            build-essential \
-            python3 \
-            python3-pip \
             default-jdk \
-            maven \
-            nodejs \
-            npm \
-            git
+            unzip
           
           echo "✅ System dependencies installed"
           
@@ -129,15 +120,39 @@ jobs:
           echo "✅ All Fortify files downloaded from S3"
           ls -la ${{ env.FORTIFY_HOME }}/
           
+      - name: Check Fortify Installer Options
+        run: |
+          echo "=== Checking Fortify Installer Options ==="
+          
+          cd ${{ env.FORTIFY_HOME }}
+          
+          echo "🔍 Checking available installer options..."
+          ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --help || echo "Installer help not available, trying basic installation"
+          
       - name: Install Fortify SCA
         run: |
           echo "=== Installing Fortify SCA ==="
           
           cd ${{ env.FORTIFY_HOME }}
           
-          # Install Fortify SCA
+          # Install Fortify SCA - try different installation methods
           echo "🔧 Installing Fortify SCA..."
-          ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --prefix ${{ env.FORTIFY_SCA_HOME }}
+          
+          # Method 1: Try with installdir
+          if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
+            echo "✅ Fortify SCA installed successfully with installdir"
+          else
+            echo "⚠️  installdir failed, trying without directory specification..."
+            # Method 2: Try without directory specification (install to default location)
+            if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
+              echo "✅ Fortify SCA installed successfully to default location"
+              # Update the SCA home to default location
+              echo "export FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
+            else
+              echo "❌ All installation methods failed"
+              exit 1
+            fi
+          fi
           
           if [ $? -eq 0 ]; then
             echo "✅ Fortify SCA installed successfully"
@@ -149,6 +164,16 @@ jobs:
           # Set environment variables
           echo "export FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
           echo "export PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
+          
+          # Find where Fortify was actually installed
+          echo "🔍 Locating Fortify installation..."
+          find /opt -name "sourceanalyzer" 2>/dev/null | head -1 | while read path; do
+            echo "Found sourceanalyzer at: $path"
+            ACTUAL_SCA_HOME=$(dirname $(dirname "$path"))
+            echo "Actual SCA home: $ACTUAL_SCA_HOME"
+            echo "export FORTIFY_SCA_HOME=$ACTUAL_SCA_HOME" >> $GITHUB_ENV
+            echo "export PATH=\$PATH:\$ACTUAL_SCA_HOME/bin" >> $GITHUB_ENV
+          done
           
       - name: Configure Fortify License
         run: |
