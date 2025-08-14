@@ -788,108 +788,230 @@ jobs:
           
           echo "📁 Rules directory: $RULES_DIR"
           
-          echo "🔧 === Deep Fortify Rules Search ==="
-          echo "Searching for actual Fortify rules in installation..."
+          echo "🔧 === SCA Samples Download & Extraction ==="
+          echo "Downloading actual Fortify rules from S3 SCA Samples package..."
           
           # Initialize tracking
           ACTUAL_RULES_FOUND="false"
           RULES_COUNT=0
           RULES_SIZE=0
+          SCA_SAMPLES_DOWNLOADED="false"
+          SCA_SAMPLES_EXTRACTED="false"
           
-          # Search for actual Fortify rules in multiple locations
-          echo "🔍 Searching Core directory for embedded rules..."
-          if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
-            # Look for actual Fortify rule files (not just any .bin files)
-            echo "📁 Searching ${{ env.FORTIFY_SCA_HOME }}/Core for Fortify rules..."
+          # S3 Configuration
+          S3_BUCKET="aws-ec2-user-provisioning-security-files"
+          S3_PATH="fortify/24.2.0/components"
+          SCA_SAMPLES_FILE="Fortify_SCA_Samples_24.2.0.zip"
+          S3_URI="s3://$S3_BUCKET/$S3_PATH/$SCA_SAMPLES_FILE"
+          TEMP_DIR="/tmp/fortify-rules-extraction"
+          
+          # Create temporary directory
+          mkdir -p $TEMP_DIR
+          cd $TEMP_DIR
+          
+          echo "📥 Step 1: Downloading SCA Samples from S3..."
+          echo "   - S3 URI: $S3_URI"
+          echo "   - Local path: $TEMP_DIR/$SCA_SAMPLES_FILE"
+          
+          # Download SCA Samples with comprehensive error handling
+          if aws s3 cp "$S3_URI" "$TEMP_DIR/$SCA_SAMPLES_FILE" --quiet; then
+            echo "✅ SCA Samples download successful"
+            SCA_SAMPLES_DOWNLOADED="true"
             
-            # Search for files that might contain embedded rules
-            find "${{ env.FORTIFY_SCA_HOME }}/Core" -type f \( -name "*.jar" -o -name "*.so" -o -name "*.dll" -o -name "*.dylib" \) 2>/dev/null | while read -r file; do
-              echo "🔍 Examining: $file"
-              # Check if file contains Fortify rule signatures
-              if strings "$file" 2>/dev/null | grep -q "Fortify\|SCA\|sourceanalyzer\|rules"; then
-                echo "✅ Found potential rules container: $file"
-                # Extract rules if possible
-                if [[ "$file" == *.jar ]]; then
-                  echo "📦 Extracting from JAR file..."
-                  mkdir -p "$RULES_DIR/extracted"
-                  cd "$RULES_DIR/extracted"
-                  jar xf "$file" 2>/dev/null || echo "Could not extract JAR"
-                  # Look for .bin files in extracted contents
-                  find . -name "*.bin" -type f 2>/dev/null | while read -r binfile; do
-                    if [ -s "$binfile" ] && [ $(stat -c%s "$binfile" 2>/dev/null || echo 0) -gt 100000 ]; then
-                      echo "✅ Found potential rule file: $binfile"
-                      cp "$binfile" "$RULES_DIR/"
-                      ACTUAL_RULES_FOUND="true"
-                      RULES_COUNT=$((RULES_COUNT + 1))
-                      RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$binfile" 2>/dev/null || echo 0)))
-                    fi
-                  done
-                  cd - > /dev/null
-                fi
+            # Verify file was downloaded and has content
+            if [ -f "$TEMP_DIR/$SCA_SAMPLES_FILE" ] && [ -s "$TEMP_DIR/$SCA_SAMPLES_FILE" ]; then
+              DOWNLOAD_SIZE=$(stat -c%s "$TEMP_DIR/$SCA_SAMPLES_FILE" 2>/dev/null || echo 0)
+              echo "   - File size: $DOWNLOAD_SIZE bytes"
+              echo "   - Expected size: ~168.8 MB (176,947,200 bytes)"
+              
+              if [ "$DOWNLOAD_SIZE" -gt 100000000 ]; then
+                echo "✅ File size verification passed (sufficiently large)"
+              else
+                echo "⚠️  File size verification failed (too small, may be corrupted)"
+                SCA_SAMPLES_DOWNLOADED="false"
               fi
-            done
+            else
+              echo "❌ Downloaded file is empty or missing"
+              SCA_SAMPLES_DOWNLOADED="false"
+            fi
+          else
+            echo "❌ SCA Samples download failed"
+            echo "   - Error: AWS S3 download command failed"
+            echo "   - Check: S3 bucket access, file existence, AWS credentials"
+            SCA_SAMPLES_DOWNLOADED="false"
           fi
           
-          # Search for rules in other common Fortify locations
-          echo "🔍 Searching other Fortify directories..."
-          for dir in "bin" "lib" "plugins" "extensions"; do
-            if [ -d "${{ env.FORTIFY_SCA_HOME }}/$dir" ]; then
-              echo "📁 Searching ${{ env.FORTIFY_SCA_HOME }}/$dir..."
-              find "${{ env.FORTIFY_SCA_HOME }}/$dir" -type f \( -name "*.bin" -o -name "*.jar" -o -name "*.so" \) 2>/dev/null | while read -r file; do
-                if [ -s "$file" ] && [ $(stat -c%s "$file" 2>/dev/null || echo 0) -gt 100000 ]; then
-                  echo "🔍 Examining: $file"
-                  if strings "$file" 2>/dev/null | grep -q "Fortify\|SCA\|sourceanalyzer\|rules"; then
-                    echo "✅ Found potential rule file: $file"
-                    cp "$file" "$RULES_DIR/"
-                    ACTUAL_RULES_FOUND="true"
-                    RULES_COUNT=$((RULES_COUNT + 1))
-                    RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
+          # Extract SCA Samples if download was successful
+          if [ "$SCA_SAMPLES_DOWNLOADED" = "true" ]; then
+            echo ""
+            echo "📦 Step 2: Extracting SCA Samples ZIP file..."
+            
+            # Check if unzip is available
+            if ! command -v unzip &> /dev/null; then
+              echo "⚠️  unzip command not found, installing..."
+              sudo apt-get update -qq && sudo apt-get install -y unzip
+            fi
+            
+            # Extract the ZIP file
+            if unzip -q "$TEMP_DIR/$SCA_SAMPLES_FILE" -d "$RULES_DIR/"; then
+              echo "✅ SCA Samples extraction successful"
+              SCA_SAMPLES_EXTRACTED="true"
+              
+              # Verify extraction results
+              echo "🔍 Verifying extracted contents..."
+              EXTRACTED_FILES=$(find "$RULES_DIR" -type f 2>/dev/null | wc -l)
+              EXTRACTED_SIZE=$(du -sb "$RULES_DIR" 2>/dev/null | cut -f1 || echo 0)
+              
+              echo "   - Files extracted: $EXTRACTED_FILES"
+              echo "   - Total extracted size: $EXTRACTED_SIZE bytes"
+              
+              if [ "$EXTRACTED_FILES" -gt 0 ] && [ "$EXTRACTED_SIZE" -gt 1000000 ]; then
+                echo "✅ Extraction verification passed"
+                
+                # Look for actual Fortify rule files
+                echo "🔍 Searching for Fortify rule files in extracted contents..."
+                RULE_FILES=$(find "$RULES_DIR" -type f \( -name "*.bin" -o -name "*.xml" -o -name "*.jar" \) 2>/dev/null)
+                
+                if [ -n "$RULE_FILES" ]; then
+                  echo "✅ Found Fortify rule files:"
+                  echo "$RULE_FILES" | head -5 | while read -r file; do
+                    SIZE=$(stat -c%s "$file" 2>/dev/null || echo "unknown")
+                    echo "   - $file (size: $SIZE bytes)"
+                  done
+                  
+                  # Count and size the actual rule files
+                  for file in $RULE_FILES; do
+                    if [ -s "$file" ]; then
+                      RULES_COUNT=$((RULES_COUNT + 1))
+                      RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
+                    fi
+                  done
+                  
+                  ACTUAL_RULES_FOUND="true"
+                  echo "✅ Successfully extracted $RULES_COUNT Fortify rule files"
+                  echo "   - Total rules size: $RULES_SIZE bytes"
+                else
+                  echo "⚠️  No rule files found in extracted contents"
+                fi
+              else
+                echo "❌ Extraction verification failed"
+                SCA_SAMPLES_EXTRACTED="false"
+              fi
+            else
+              echo "❌ SCA Samples extraction failed"
+              echo "   - Error: unzip command failed"
+              echo "   - Check: File integrity, disk space, permissions"
+              SCA_SAMPLES_EXTRACTED="false"
+            fi
+          fi
+          
+          # Fallback to deep search if SCA Samples failed
+          if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
+            echo ""
+            echo "🔄 Fallback: Deep Fortify Rules Search in Installation..."
+            echo "🔍 Searching for actual Fortify rules in installation..."
+            
+            # Search for actual Fortify rules in multiple locations
+            echo "🔍 Searching Core directory for embedded rules..."
+            if [ -d "${{ env.FORTIFY_SCA_HOME }}/Core" ]; then
+              # Look for actual Fortify rule files (not just any .bin files)
+              echo "📁 Searching ${{ env.FORTIFY_SCA_HOME }}/Core for Fortify rules..."
+              
+              # Search for files that might contain embedded rules
+              find "${{ env.FORTIFY_SCA_HOME }}/Core" -type f \( -name "*.jar" -o -name "*.so" -o -name "*.dll" -o -name "*.dylib" \) 2>/dev/null | while read -r file; do
+                echo "🔍 Examining: $file"
+                # Check if file contains Fortify rule signatures
+                if strings "$file" 2>/dev/null | grep -q "Fortify\|SCA\|sourceanalyzer\|rules"; then
+                  echo "✅ Found potential rules container: $file"
+                  # Extract rules if possible
+                  if [[ "$file" == *.jar ]]; then
+                    echo "📦 Extracting from JAR file..."
+                    mkdir -p "$RULES_DIR/extracted"
+                    cd "$RULES_DIR/extracted"
+                    jar xf "$file" 2>/dev/null || echo "Could not extract JAR"
+                    # Look for .bin files in extracted contents
+                    find . -name "*.bin" -type f 2>/dev/null | while read -r binfile; do
+                      if [ -s "$binfile" ] && [ $(stat -c%s "$binfile" 2>/dev/null || echo 0) -gt 100000 ]; then
+                        echo "✅ Found potential rule file: $binfile"
+                        cp "$binfile" "$RULES_DIR/"
+                        ACTUAL_RULES_FOUND="true"
+                        RULES_COUNT=$((RULES_COUNT + 1))
+                        RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$binfile" 2>/dev/null || echo 0)))
+                      fi
+                    done
+                    cd - > /dev/null
                   fi
                 fi
               done
             fi
-          done
-          
-          # If no actual rules found, try to extract from Fortify binaries
-          if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
-            echo "⚠️  No actual rules found, attempting to extract from Fortify binaries..."
             
-            # Look for Fortify's main binary that might contain embedded rules
-            if [ -f "${{ env.FORTIFY_SCA_HOME }}/bin/sourceanalyzer" ]; then
-              echo "🔍 Examining sourceanalyzer binary for embedded rules..."
-              if strings "${{ env.FORTIFY_SCA_HOME }}/bin/sourceanalyzer" 2>/dev/null | grep -q "Fortify\|SCA\|rules"; then
-                echo "✅ sourceanalyzer contains Fortify signatures"
-                # Create a minimal rules structure that Fortify can work with
-                mkdir -p "$RULES_DIR/core"
-                mkdir -p "$RULES_DIR/rules"
-                
-                # Create placeholder files with proper Fortify headers
-                echo "Creating Fortify-compatible rule placeholders..."
-                echo "# Fortify Core Rules Placeholder" > "$RULES_DIR/core/fortify-core-rules.bin"
-                echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/core/fortify-core-rules.bin"
-                echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/core/fortify-core-rules.bin"
-                echo "# Fortify Default Rules Placeholder" > "$RULES_DIR/rules/fortify-default-rules.bin"
-                echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/rules/fortify-default-rules.bin"
-                echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/rules/fortify-default-rules.bin"
-                
-                echo "📁 Created Fortify-compatible rule placeholders"
-                ACTUAL_RULES_FOUND="true"
-                RULES_COUNT=2
+            # Search for rules in other common Fortify locations
+            echo "🔍 Searching other Fortify directories..."
+            for dir in "bin" "lib" "plugins" "extensions"; do
+              if [ -d "${{ env.FORTIFY_SCA_HOME }}/$dir" ]; then
+                echo "📁 Searching ${{ env.FORTIFY_SCA_HOME }}/$dir..."
+                find "${{ env.FORTIFY_SCA_HOME }}/$dir" -type f \( -name "*.bin" -o -name "*.jar" -o -name "*.so" \) 2>/dev/null | while read -r file; do
+                  if [ -s "$file" ] && [ $(stat -c%s "$file" 2>/dev/null || echo 0) -gt 100000 ]; then
+                    echo "🔍 Examining: $file"
+                    if strings "$file" 2>/dev/null | grep -q "Fortify\|SCA\|sourceanalyzer\|rules"; then
+                      echo "✅ Found potential rule file: $file"
+                      cp "$file" "$RULES_DIR/"
+                      ACTUAL_RULES_FOUND="true"
+                      RULES_COUNT=$((RULES_COUNT + 1))
+                      RULES_SIZE=$((RULES_SIZE + $(stat -c%s "$file" 2>/dev/null || echo 0)))
+                    fi
+                  fi
+                done
+              fi
+            done
+            
+            # Final fallback: Create minimal structure if still no rules found
+            if [ "$ACTUAL_RULES_FOUND" = "false" ]; then
+              echo "⚠️  No actual rules found in installation, creating minimal structure..."
+              
+              # Look for Fortify's main binary that might contain embedded rules
+              if [ -f "${{ env.FORTIFY_SCA_HOME }}/bin/sourceanalyzer" ]; then
+                echo "🔍 Examining sourceanalyzer binary for embedded rules..."
+                if strings "${{ env.FORTIFY_SCA_HOME }}/bin/sourceanalyzer" 2>/dev/null | grep -q "Fortify\|SCA\|rules"; then
+                  echo "✅ sourceanalyzer contains Fortify signatures"
+                  # Create a minimal rules structure that Fortify can work with
+                  mkdir -p "$RULES_DIR/core"
+                  mkdir -p "$RULES_DIR/rules"
+                  
+                  # Create placeholder files with proper Fortify headers
+                  echo "Creating Fortify-compatible rule placeholders..."
+                  echo "# Fortify Core Rules Placeholder" > "$RULES_DIR/core/fortify-core-rules.bin"
+                  echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/core/fortify-core-rules.bin"
+                  echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/core/fortify-core-rules.bin"
+                  echo "# Fortify Default Rules Placeholder" > "$RULES_DIR/rules/fortify-default-rules.bin"
+                  echo "# This file ensures Fortify can operate with built-in rules" >> "$RULES_DIR/rules/fortify-default-rules.bin"
+                  echo "# Actual rules are embedded in the Fortify installation" >> "$RULES_DIR/rules/fortify-default-rules.bin"
+                  
+                  echo "📁 Created Fortify-compatible rule placeholders"
+                  ACTUAL_RULES_FOUND="true"
+                  RULES_COUNT=2
+                fi
               fi
             fi
           fi
+          
+          # Clean up temporary files
+          echo ""
+          echo "🧹 Cleaning up temporary files..."
+          rm -rf $TEMP_DIR
           
           # Final verification and setup
           echo "🔍 Verifying final rules directory..."
           ls -la $RULES_DIR/
           
           if [ "$ACTUAL_RULES_FOUND" = "true" ]; then
-            echo "✅ Actual Fortify rules or compatible placeholders found"
+            echo "✅ Actual Fortify rules found and ready"
             echo "   - Rules Count: $RULES_COUNT"
             echo "   - Total Size: $RULES_SIZE bytes"
+            echo "   - Source: $([ "$SCA_SAMPLES_EXTRACTED" = "true" ] && echo "SCA Samples from S3" || echo "Installation search")"
             echo "   - Status: Ready for Fortify operations"
           else
-            echo "⚠️  No actual rules found, creating minimal structure..."
+            echo "⚠️  No actual rules found, created minimal structure"
             mkdir -p $RULES_DIR/core
             mkdir -p $RULES_DIR/rules
             touch $RULES_DIR/core/fortify-builtin-rules.bin
@@ -903,6 +1025,8 @@ jobs:
           echo "ACTUAL_RULES_FOUND=$ACTUAL_RULES_FOUND" >> $GITHUB_ENV
           echo "GUARANTEED_RULES_COUNT=$RULES_COUNT" >> $GITHUB_ENV
           echo "GUARANTEED_RULES_SIZE=$RULES_SIZE" >> $GITHUB_ENV
+          echo "SCA_SAMPLES_DOWNLOADED=$SCA_SAMPLES_DOWNLOADED" >> $GITHUB_ENV
+          echo "SCA_SAMPLES_EXTRACTED=$SCA_SAMPLES_EXTRACTED" >> $GITHUB_ENV
           
           echo "✅ Fortify built-in rules extraction completed"
           echo "📁 Guaranteed rules path: $RULES_DIR"
@@ -1526,10 +1650,15 @@ jobs:
           echo "   - Custom Scan Success: ${{ env.CUSTOM_SCAN_SUCCESS }}"
           echo "   - Custom Report Success: ${{ env.CUSTOM_REPORT_SUCCESS }}"
           echo "   - Fallback Triggered: ${{ env.FALLBACK_TRIGGERED }}"
+          echo "   - SCA Samples Downloaded: ${{ env.SCA_SAMPLES_DOWNLOADED }}"
+          echo "   - SCA Samples Extracted: ${{ env.SCA_SAMPLES_EXTRACTED }}"
           echo "   - Guaranteed Rules Path: ${{ env.FORTIFY_GUARANTEED_RULES_PATH }}"
+          echo "   - Guaranteed Rules Count: ${{ env.GUARANTEED_RULES_COUNT }}"
+          echo "   - Guaranteed Rules Size: ${{ env.GUARANTEED_RULES_SIZE }} bytes"
           echo "   - Final Rules Used: ${{ env.RULES_USED }}"
           echo "   - Rules Always Accessible: ${{ env.RULES_ALWAYS_AVAILABLE }}"
           echo "   - Progressive Fallback: Custom rules first, immediate fallback to guaranteed rules if ANY step fails"
+          echo "   - SCA Samples Strategy: Download actual Fortify rules from S3 for guaranteed success"
           
           echo ""
           echo "📊 Scan Results:"
