@@ -52,6 +52,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
           
+      - name: Install Required Packages
+        run: |
+          echo "📦 Installing required packages..."
+          apt-get update
+          apt-get install -y unzip curl wget tar gzip
+          echo "✅ Required packages installed"
+          
       - name: Check Available Disk Space
         run: |
           echo "📊 Checking available disk space..."
