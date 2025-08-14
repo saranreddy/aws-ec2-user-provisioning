@@ -59,21 +59,28 @@ jobs:
             gnupg \
             lsb-release
           
-          # Install AWS CLI v2 (official method)
-          echo "📥 Installing AWS CLI v2..."
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -q awscliv2.zip
-          sudo ./aws/install
-          rm -rf aws awscliv2.zip
-          
-          # Verify AWS CLI installation
-          aws --version
-          
           # Ensure all system binaries are in PATH
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           echo "PATH=$PATH" >> $GITHUB_ENV
           
           echo "✅ System dependencies installed and PATH configured"
+          
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+          
+      - name: Verify AWS Credentials
+        run: |
+          echo "=== AWS Credentials Verification ==="
+          
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified"
           
       - name: Create Fortify Installation Directory
         run: |
@@ -104,8 +111,8 @@ jobs:
           echo "Downloading from S3 bucket: $S3_BUCKET"
           echo "Fortify version: $FORTIFY_VERSION"
           
-          # Verify AWS CLI is accessible
-          which aws && aws --version
+          # Verify AWS CLI is accessible (configured by aws-actions/configure-aws-credentials)
+          which aws
           
           # Download Fortify SCA installer
           echo "📥 Downloading Fortify SCA installer..."
