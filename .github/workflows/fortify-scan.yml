@@ -186,6 +186,32 @@ jobs:
           
           echo "✅ System configuration completed"
           
+      - name: Download Default Fortify Rules
+        run: |
+          echo "=== Downloading Default Fortify Rules ==="
+          
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
+          # Create rules directory if it doesn't exist
+          sudo mkdir -p /opt/fortify/default-rules
+          
+          # Download default Fortify rules from S3 if available
+          S3_BUCKET="${{ inputs.s3_bucket }}"
+          FORTIFY_VERSION="${{ inputs.fortify_version }}"
+          
+          echo "🔍 Checking for default rules in S3..."
+          if aws s3 ls "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/rules/" >/dev/null 2>&1; then
+            echo "📥 Downloading default rules from S3..."
+            aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/rules/" /opt/fortify/default-rules/ --recursive
+            echo "✅ Default rules downloaded from S3"
+          else
+            echo "⚠️  No default rules found in S3, will use Fortify built-in rules"
+          fi
+          
+          # Set default rules path
+          echo "FORTIFY_DEFAULT_RULES_PATH=/opt/fortify/default-rules" >> $GITHUB_ENV
+          
       - name: Create Fortify Installation Directory
         run: |
           echo "=== Creating Fortify Installation Directory ==="
@@ -468,9 +494,16 @@ jobs:
             echo "🔍 Debug: Contents of Core directory:"
             ls -la "${{ env.FORTIFY_SCA_HOME }}/Core/" | head -10
             
-            # Debug: Check for specific rules files
-            echo "🔍 Debug: Looking for rules files in Core:"
-            find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | head -10 || echo "No specific rules files found"
+                      # Debug: Check for specific rules files
+          echo "🔍 Debug: Looking for rules files in Core:"
+          find "${{ env.FORTIFY_SCA_HOME }}/Core" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | head -10 || echo "No specific rules files found"
+          
+          # Check if Core directory is empty
+          if [ -z "$(ls -A "${{ env.FORTIFY_SCA_HOME }}/Core" 2>/dev/null)" ]; then
+            echo "⚠️  Core directory is empty - this suggests incomplete Fortify installation"
+            echo "🔍 Let's search for rules files in the entire Fortify installation tree:"
+            find /opt/fortify -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" -o -name "*Core*" 2>/dev/null | head -20 || echo "No rules files found anywhere in /opt/fortify"
+          fi
             
           elif [ -d "${{ env.FORTIFY_SCA_HOME }}/core" ]; then
             FORTIFY_RULES_PATH="${{ env.FORTIFY_SCA_HOME }}/core"
@@ -491,8 +524,18 @@ jobs:
           if [ -n "$FORTIFY_RULES_PATH" ]; then
             echo "✅ FORTIFY_RULES_PATH is set to: $FORTIFY_RULES_PATH"
             echo "✅ Rules directory exists: $([ -d "$FORTIFY_RULES_PATH" ] && echo "YES" || echo "NO")"
+            
+            # Check if rules directory actually contains rules files
+            RULES_COUNT=$(find "$FORTIFY_RULES_PATH" -name "*.bin" -o -name "*scan-policy*" -o -name "*rules*" 2>/dev/null | wc -l)
+            if [ "$RULES_COUNT" -gt 0 ]; then
+              echo "✅ Rules directory contains $RULES_COUNT rules files"
+            else
+              echo "⚠️  Rules directory exists but contains no rules files - will use default Fortify rules"
+              echo "FORTIFY_RULES_PATH=" >> $GITHUB_ENV
+              unset FORTIFY_RULES_PATH
+            fi
           else
-            echo "❌ FORTIFY_RULES_PATH is not set"
+            echo "⚠️  FORTIFY_RULES_PATH is not set - will use default Fortify rules"
           fi
           
       - name: Debug Fortify License Issues
@@ -610,8 +653,24 @@ jobs:
               -cp "**/*.py" \
               -rules "${{ env.FORTIFY_RULES_PATH }}" \
               .
+          elif [ -n "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" ] && [ -d "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" ]; then
+            echo "🔧 Using downloaded default rules path: ${{ env.FORTIFY_DEFAULT_RULES_PATH }}"
+            sourceanalyzer -b fortify-scan \
+              -source 1.8 \
+              -cp "**/*.jar" \
+              -cp "**/*.class" \
+              -cp "**/*.py" \
+              -cp "**/*.js" \
+              -cp "**/*.ts" \
+              -cp "**/*.tf" \
+              -cp "**/*.yml" \
+              -cp "**/*.yaml" \
+              -cp "**/*.sh" \
+              -cp "**/*.py" \
+              -rules "${{ env.FORTIFY_DEFAULT_RULES_PATH }}" \
+              .
           else
-            echo "🔧 Rules path not set or invalid, using default Fortify rules"
+            echo "🔧 No custom or default rules available, using Fortify built-in rules"
             sourceanalyzer -b fortify-scan \
               -source 1.8 \
               -cp "**/*.jar" \
