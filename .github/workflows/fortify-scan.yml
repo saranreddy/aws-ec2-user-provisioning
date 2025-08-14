@@ -28,6 +28,9 @@ env:
 jobs:
   fortify-scan:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     
     steps:
       - name: Checkout code
@@ -129,11 +132,21 @@ jobs:
           
           echo "✅ System environment verified"
           
+      - name: Set Role Name
+        run: |
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            exit 1
+          fi
+          
+          echo 'AuthRole=arn:aws:iam::872515261591:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
+          echo "Using role ARN: ${{ env.AuthRole }}"
+          
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ env.AuthRole }}
+          role-duration-seconds: 3600
           aws-region: us-east-2
           
       - name: Verify AWS Credentials
