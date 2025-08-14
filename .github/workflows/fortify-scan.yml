@@ -178,14 +178,37 @@ jobs:
         run: |
           echo "=== Configuring Fortify License ==="
           
-          # Copy license to Fortify SCA directory
+          # Copy license to multiple possible Fortify locations
+          echo "📋 Copying license to multiple Fortify locations..."
+          
+          # Location 1: SCA bin directory
           cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/bin/
           
-          # Set license path
-          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
-          echo "export FORTIFY_LICENSE_PATH=$FORTIFY_LICENSE_PATH" >> $GITHUB_ENV
+          # Location 2: SCA root directory
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ${{ env.FORTIFY_SCA_HOME }}/
           
-          echo "✅ Fortify license configured"
+          # Location 3: System-wide Fortify location
+          sudo cp ${{ env.FORTIFY_HOME }}/fortify.license /opt/fortify/
+          
+          # Location 4: User home directory (Fortify sometimes looks here)
+          cp ${{ env.FORTIFY_HOME }}/fortify.license ~/
+          
+          # Set multiple license path environment variables
+          export FORTIFY_LICENSE_PATH="${{ env.FORTIFY_SCA_HOME }}/bin/fortify.license"
+          export FORTIFY_LICENSE="${{ env.FORTIFY_SCA_HOME }}/fortify.license"
+          export FORTIFY_LICENSE_FILE="${{ env.FORTIFY_SCA_HOME }}/fortify.license"
+          
+          echo "export FORTIFY_LICENSE_PATH=$FORTIFY_LICENSE_PATH" >> $GITHUB_ENV
+          echo "export FORTIFY_LICENSE=$FORTIFY_LICENSE" >> $GITHUB_ENV
+          echo "export FORTIFY_LICENSE_FILE=$FORTIFY_LICENSE_FILE" >> $GITHUB_ENV
+          
+          # Verify license file exists and show its properties
+          echo "🔍 License file details:"
+          ls -la ${{ env.FORTIFY_HOME }}/fortify.license
+          echo "📄 License file content (first 5 lines):"
+          head -5 ${{ env.FORTIFY_HOME }}/fortify.license || echo "Could not read license file"
+          
+          echo "✅ Fortify license configured in multiple locations"
           
       - name: Verify Fortify Installation
         run: |
@@ -204,6 +227,25 @@ jobs:
           fi
           
           echo "✅ Fortify SCA verified successfully"
+          
+      - name: Validate Fortify License
+        if: inputs.scan_type == 'source-code'
+        run: |
+          echo "=== Validating Fortify License ==="
+          
+          # Add Fortify to PATH
+          export PATH="$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          # Test license with Fortify
+          echo "🧪 Testing license with Fortify..."
+          if sourceanalyzer -license-check; then
+            echo "✅ License validation successful"
+          else
+            echo "⚠️  License validation failed, but continuing..."
+            echo "🔍 Available license files:"
+            find /opt -name "*license*" 2>/dev/null || echo "No license files found in /opt"
+            find ~ -name "*license*" 2>/dev/null || echo "No license files found in home"
+          fi
           
       - name: Run Fortify Source Code Scan
         if: inputs.scan_type == 'source-code'
