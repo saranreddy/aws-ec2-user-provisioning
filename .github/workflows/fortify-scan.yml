@@ -267,7 +267,17 @@ jobs:
           echo "🔍 Debug: Checking if sourceanalyzer exists in ${{ env.FORTIFY_SCA_HOME }}/bin:"
           ls -la "${{ env.FORTIFY_SCA_HOME }}/bin/" 2>/dev/null || echo "Directory not found or empty"
           
+          # Debug: Search for sourceanalyzer in entire Fortify installation
+          echo ""
+          echo "🔍 Debug: Searching for sourceanalyzer in entire Fortify installation tree:"
+          find /opt/fortify -name "sourceanalyzer" 2>/dev/null | head -5 || echo "sourceanalyzer not found in /opt/fortify"
+          
+          echo ""
+          echo "🔍 Debug: Searching for any SCA-related executables:"
+          find /opt/fortify -name "*sca*" -o -name "*source*" -o -name "*analyzer*" 2>/dev/null | head -10 || echo "No SCA executables found"
+          
           # Debug: Try to find sourceanalyzer again
+          echo ""
           echo "🔍 Debug: Searching for sourceanalyzer in PATH:"
           which sourceanalyzer || echo "sourceanalyzer not found in PATH"
           
