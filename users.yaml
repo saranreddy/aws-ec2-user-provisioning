@@ -1,63 +1,73 @@
 # User configuration for AWS EC2 provisioning
 # Each user will get a unique username and SSH key pair
 # Users with "ID does not exist" are commented out
+# TESTING MODE: Only sta003 and txs030 enabled
 users:
-- username: rai002
-  email: raghavee.ai@umb.com
-  full_name: "Raghavee A"
+# - username: rai002
+#   email: raghavee.ai@umb.com
+#   full_name: "Raghavee A"
 
 # - username: [ID does not exist]
 #   email: [no email provided]
 #   full_name: "Yathartha Agarwal"
 
-- username: hhe004
-  email: harsha-venkatraman.hegde@umb.com
-  full_name: "Harsha-Venkatraman Hegde"
+# - username: hhe004
+#   email: harsha-venkatraman.hegde@umb.com
+#   full_name: "Harsha-Venkatraman Hegde"
 
-- username: rar010
-  email: ramesh.aravind@umb.com
-  full_name: "Aravind Ramesh"
+# - username: rar010
+#   email: ramesh.aravind@umb.com
+#   full_name: "Aravind Ramesh"
 
-- username: sbe004
-  email: shamshath.begam@umb.com
-  full_name: "Shamshath Begam"
+# - username: sbe004
+#   email: shamshath.begam@umb.com
+#   full_name: "Shamshath Begam"
 
-- username: mac021
-  email: minakshi.achary@umb.com
-  full_name: "Minakshi Achary"
+# - username: mac021
+#   email: minakshi.achary@umb.com
+#   full_name: "Minakshi Achary"
 
-- username: sra009
-  email: sakkaravarthi.ramasubbu@umb.com
-  full_name: "Sakkaravarthi Ramasubbu"
+# - username: sra009
+#   email: sakkaravarthi.ramasubbu@umb.com
+#   full_name: "Sakkaravarthi Ramasubbu"
 
-- username: dje008
-  email: deborah.jerusha@umb.com
-  full_name: "Deborah Jerusha"
+# - username: dje008
+#   email: deborah.jerusha@umb.com
+#   full_name: "Deborah Jerusha"
 
 # - username: [ID does not exist]
 #   email: [no email provided]
 #   full_name: "Ramya P"
 
-- username: jbo005
-  email: juanita.booheister@umb.com
-  full_name: "Juanita Booheister"
+# - username: jbo005
+#   email: juanita.booheister@umb.com
+#   full_name: "Juanita Booheister"
 
-- username: cve002
-  email: chandrasekar.venkatesan@umb.com
-  full_name: "Chandrasekar Venkatesan"
+# - username: cve002
+#   email: chandrasekar.venkatesan@umb.com
+#   full_name: "Chandrasekar Venkatesan"
 
-- username: sna006
-  email: shruti.nallari@umb.com
-  full_name: "Shruti Nallari"
+# - username: sna006
+#   email: shruti.nallari@umb.com
+#   full_name: "Shruti Nallari"
 
-- username: msh012
-  email: monika.sharma@umb.com
-  full_name: "Monika Sharma"
+# - username: msh012
+#   email: monika.sharma@umb.com
+#   full_name: "Monika Sharma"
 
-- username: nba005
-  email: namitha.barthur@umb.com
-  full_name: "Namitha Barthur"
+# - username: nba005
+#   email: namitha.barthur@umb.com
+#   full_name: "Namitha Barthur"
 
-- username: dda007
-  email: daison.david@umb.com
-  full_name: "Daison Aloor David"
+# - username: dda007
+#   email: daison.david@umb.com
+#   full_name: "Daison Aloor David"
+
+# TESTING USERS - ENABLED FOR WORKFLOW TESTING
+- username: sta003
+  email: saran.alla@umb.com
+  full_name: "Saran Alla"
+
+- username: txs030
+  email: tripatjeet.singh@umb.com
+  full_name: "TJ"
