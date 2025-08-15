@@ -297,295 +297,292 @@ jobs:
             done
           fi
           
-      - name: Install SSH Keys on EC2 Instance
-        if: github.event.inputs.dry_run != 'true'
-        run: |
-          echo "=== Installing SSH Keys on EC2 Instance ==="
+      # - name: Install SSH Keys on EC2 Instance
+      #   if: github.event.inputs.dry_run != 'true'
+      #   run: |
+      #     echo "=== Installing SSH Keys on EC2 Instance ==="
+      #     
+      #     EC2_IP="${{ env.EC2_INSTANCE_IP }}"
+      #     SSH_USER="ec2-user"
+      #     
+      #     echo "🔍 DEBUGGING INFORMATION:"
+      #     echo "=========================="
+      #     echo "EC2 Instance IP: $EC2_IP"
+      #     echo "IP Type: ${{ env.EC2_IP_TYPE }}"
+      #     echo "SSH User: $SSH_USER"
+      #     echo "SSH Key Path: ~/.ssh/ec2-provisioning-key"
+      #     echo "Current Directory: $(pwd)"
+      #     echo "SSH Key Permissions: $(ls -la ~/.ssh/ec2-provisioning-key 2>/dev/null || echo 'SSH key not found')"
+      #     echo "SSH Key Size: $(wc -c < ~/.ssh/ec2-provisioning-key 2>/dev/null || echo '0') bytes"
+      #     echo ""
+      #     
+      #     echo "🌐 NETWORK DIAGNOSTICS:"
+      #     echo "========================"
+      #     echo "GitHub Actions Runner IP: $(curl -s ifconfig.me 2>/dev/null || echo 'Unable to determine')"
+      #     echo "Ping test to EC2: $(ping -c 3 -W 5 $EC2_IP 2>&1 | tail -1 || echo 'Ping failed')"
+      #     echo "Telnet test to port 22: $(timeout 5 bash -c "</dev/tcp/$EC2_IP/22" && echo "Port 22 is reachable" || echo "Port 22 is NOT reachable")"
+      #     echo "Traceroute to EC2: $(traceroute -m 10 $EC2_IP 2>&1 | head -5 | tr '\n' ' ' || echo 'Traceroute failed')"
+      #     echo ""
+      #     
+      #     echo "🔑 SSH KEY VALIDATION:"
+      #     echo "======================="
+      #     echo "SSH key format check:"
+      #     ssh-keygen -l -f ~/.ssh/ec2-provisioning-key 2>&1 || echo "SSH key format validation failed"
+      #     echo ""
+      #     
+      #     echo "🔌 SSH CONNECTION TEST:"
+      #     echo "========================"
+      #     echo "Connecting to EC2 instance at $EC2_IP (${{ env.EC2_IP_TYPE }} IP)..."
+      #     echo "SSH command: ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP 'echo \"SSH connection successful\"'"
+      #     echo ""
+      #     
+      #     # Test SSH connection with verbose logging
+      #     if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
+      #       echo "✅ SSH connection established"
+      #     else
+      #       echo "❌ Failed to establish SSH connection"
+      #       echo ""
+      #       echo "🔍 FAILURE ANALYSIS:"
+      #       echo "==================="
+      #       echo "SSH exit code: $?"
+      #       echo "Last SSH error: $?"
+      #       echo ""
+      #       echo "💡 TROUBLESHOOTING SUGGESTIONS:"
+      #       echo "==============================="
+      #       echo "1. Check if EC2 instance is running and accessible"
+      #       echo "2. Verify security group allows SSH (port 22) from GitHub Actions runner"
+      #       echo "3. Check if instance is in public subnet with internet access"
+      #       echo "4. Verify the SSH key is correct and has proper permissions"
+      #       echo "5. Check VPC route tables and network ACLs"
+      #       echo "6. Ensure the instance has a public IP if connecting from internet"
+      #       echo ""
+      #       exit 1
+      #     fi
+      #     
+      #     # Make the script executable
+      #     chmod +x scripts/install_users.sh
+      #     
+      #     # Read usernames from users.yaml dynamically
+      #     USERS=$(python3 -c "
+      #     import yaml
+      #     with open('users.yaml', 'r') as f:
+      #         data = yaml.safe_load(f)
+      #         users = [user['username'] for user in data['users']]
+      #         print(' '.join(users))
+      #     ")
+      #     
+      #     # Check if any users were found
+      #     if [ -z "$USERS" ]; then
+      #       echo "❌ No users found in users.yaml"
+      #       exit 1
+      #     fi
+      #     
+      #     # Install each user's public key using the script
+      #     for user in $USERS; do
+      #       if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+      #         echo "Installing key for user: $user"
+      #             
+      #             # Read the public key content
+      #             PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
+      #             
+      #             # Call the user provisioning script
+      #             echo "Running user provisioning script for $user..."
+      #             if ./scripts/install_users.sh "$user" "$user" "$SSH_USER" "$EC2_IP"; then
+      #               echo "✅ User $user provisioned successfully"
+      #             else
+      #               echo "❌ Failed to provision user $user"
+      #             exit 1
+      #             fi
+      #           else
+      #             echo "❌ SSH key for $user not found"
+      #             exit 1
+      #           fi
+      #         done
+      #         
+      #         echo "✅ All SSH keys installed on EC2 instance"
           
-          EC2_IP="${{ env.EC2_INSTANCE_IP }}"
-          SSH_USER="ec2-user"
+      # - name: Verify User Access
+      #   if: github.event.inputs.dry_run != 'true'
+      #   run: |
+      #     echo "=== Verifying User Access ==="
+      #     
+      #     EC2_IP="${{ env.EC2_INSTANCE_IP }}"
+      #     TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+      #     
+      #     # Read usernames from users.yaml dynamically
+      #     USERS=$(python3 -c "
+      #     import yaml
+      #     with open('users.yaml', 'r') as f:
+      #         data = yaml.safe_load(f)
+      #         users = [user['username'] for user in data['users']]
+      #             print(' '.join(users))
+      #         ")
+      #     
+      #     echo "🔍 Verification Details:"
+      #     echo "- EC2 Instance IP: $EC2_IP"
+      #     echo "- Verification Timestamp: $TIMESTAMP"
+      #     echo "- Total Users to Verify: $(echo $USERS | wc -w)"
+      #     echo ""
+      #     
+      #     echo "📋 Users to verify: $USERS"
+      #     echo ""
+      #     
+      #     # Check if any users were found
+      #     if [ -z "$USERS" ]; then
+      #       echo "❌ No users found in users.yaml"
+      #       exit 1
+      #     fi
+      #     
+      #     # Test each user's SSH access with comprehensive verification
+      #     for user in $USERS; do
+      #       echo "🧪 Testing SSH access for user: $user"
+      #       echo "   └─ Creating temporary key file..."
+      #       
+      #       # Create a temporary private key file for testing
+      #       TEMP_KEY="/tmp/test_${user}_key"
+      #       cp "/tmp/ssh_keys/${user}_private_key" "$TEMP_KEY"
+      #       chmod 600 "$TEMP_KEY"
+      #       
+      #       echo "   └─ Testing basic SSH connection..."
+      #       # Test basic SSH connection
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 $user@$EC2_IP "echo '✅ Basic SSH connection successful for $user'"; then
+      #         echo "   ✅ Basic SSH connection: SUCCESS"
+      #       else
+      #         echo "   ❌ Basic SSH connection: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #       exit 1
+      #     fi
+      #     
+      #       echo "   └─ Testing user identity and home directory..."
+      #       # Test user identity and home directory access
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "whoami && pwd && echo 'Home directory contents:' && ls -la"; then
+      #         echo "   ✅ User identity and home directory: SUCCESS"
+      #         else
+      #         echo "   ❌ User identity and home directory: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #       exit 1
+      #     fi
+      #     
+      #       echo "   └─ Creating verification file in user's home directory..."
+      #       # Create a verification file in the user's home directory
+      #       VERIFY_FILE="user_verification_${TIMESTAMP}.txt"
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'User $user successfully logged in at $(date)' > ~/$VERIFY_FILE && echo 'Verification file created successfully' && ls -la ~/$VERIFY_FILE"; then
+      #         echo "   ✅ Verification file creation: SUCCESS"
+      #         echo "   📄 File created: ~/$VERIFY_FILE"
+      #         else
+      #         echo "   ❌ Verification file creation: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #       exit 1
+      #     fi
+      #     
+      #       echo "   └─ Testing file write permissions..."
+      #       # Test file write permissions
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'Testing write permissions at $(date)' >> ~/$VERIFY_FILE && echo 'Write permissions test: SUCCESS'"; then
+      #         echo "   ✅ File write permissions: SUCCESS"
+      #         else
+      #         echo "   ❌ File write permissions: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #         exit 1
+      #       fi
+      #       
+      #       echo "   └─ Displaying verification file contents..."
+      #       # Display the verification file contents
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo '=== Verification File Contents ===' && cat ~/$VERIFY_FILE && echo '=== End of File ==='"; then
+      #         echo "   ✅ File read access: SUCCESS"
+      #         else
+      #         echo "   ❌ File read access: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #       exit 1
+      #     fi
+      #     
+      #       echo "   └─ Testing SSH key authentication..."
+      #       # Test SSH key authentication specifically
+      #       if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o PasswordAuthentication=no $user@$EC2_IP "echo 'SSH key authentication successful for $user'"; then
+      #         echo "   ✅ SSH key authentication: SUCCESS"
+      #         else
+      #         echo "   ❌ SSH key authentication: FAILED"
+      #         rm -f "$TEMP_KEY"
+      #         exit 1
+      #       fi
+      #       
+      #       # Clean up temporary key
+      #       rm -f "$TEMP_KEY"
+      #       
+      #       echo "🎉 User $user: ALL VERIFICATIONS PASSED ✅"
+      #       echo "   └─ SSH access: ✅"
+      #       echo "   └─ Home directory: ✅"
+      #       echo "   └─ File creation: ✅"
+      #       echo "   └─ Write permissions: ✅"
+      #       echo "   └─ Read permissions: ✅"
+      #       echo "   └─ Key authentication: ✅"
+      #       echo ""
+      #     done
+      #     
+      #     echo "🎊 VERIFICATION COMPLETE! 🎊"
+      #     echo "✅ All users can access EC2 instance successfully"
+      #     echo "✅ All users have proper file permissions"
+      #     echo "✅ All users can create and read files"
+      #       echo "✅ SSH key authentication working for all users"
+      #       echo ""
+      #       echo "📋 Verification Summary:"
+      #       echo "- Total users verified: $(echo $USERS | wc -w)"
+      #       echo "- Users: $USERS"
+      #       echo "- Verification timestamp: $TIMESTAMP"
+      #       echo "- All tests: PASSED ✅"
           
-          echo "🔍 DEBUGGING INFORMATION:"
-          echo "=========================="
-          echo "EC2 Instance IP: $EC2_IP"
-          echo "IP Type: ${{ env.EC2_IP_TYPE }}"
-          echo "SSH User: $SSH_USER"
-          echo "SSH Key Path: ~/.ssh/ec2-provisioning-key"
-          echo "Current Directory: $(pwd)"
-          echo "SSH Key Permissions: $(ls -la ~/.ssh/ec2-provisioning-key 2>/dev/null || echo 'SSH key not found')"
-          echo "SSH Key Size: $(wc -c < ~/.ssh/ec2-provisioning-key 2>/dev/null || echo '0') bytes"
-          echo ""
+      # - name: Create Terraform Variables (Simplified)
+      #   run: |
+      #     cd terraform
+      #     echo "=== Creating Simplified Terraform Variables ==="
+      #     
+      #     # Create minimal terraform.tfvars for user provisioning
+      #     # Note: instance_ids should be a list, not a string
+      #     INSTANCE_IDS="${{ inputs.instance_ids }}"
+      #     AWS_REGION="${{ inputs.aws_region }}"
+      #     DRY_RUN="${{ github.event.inputs.dry_run }}"
+      #     
+      #     echo "instance_ids = [\"$INSTANCE_IDS\"]" > terraform.tfvars
+      #     echo "aws_region = \"$AWS_REGION\"" >> terraform.tfvars
+      #     echo "dry_run = $DRY_RUN" >> terraform.tfvars
+      #     echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
+      #     echo 'ssh_user = "ec2-user"' >> terraform.tfvars
+      #     echo 'users_file = "../users.yaml"' >> terraform.tfvars
+      #     
+      #     echo "✅ terraform.tfvars created with proper formatting"
+      #     echo "Contents of terraform.tfvars:"
+      #     cat terraform.tfvars
           
-          echo "🌐 NETWORK DIAGNOSTICS:"
-          echo "========================"
-          echo "GitHub Actions Runner IP: $(curl -s ifconfig.me 2>/dev/null || echo 'Unable to determine')"
-          echo "Ping test to EC2: $(ping -c 3 -W 5 $EC2_IP 2>&1 | tail -1 || echo 'Ping failed')"
-          echo "Telnet test to port 22: $(timeout 5 bash -c "</dev/tcp/$EC2_IP/22" && echo "Port 22 is reachable" || echo "Port 22 is NOT reachable")"
-          echo "Traceroute to EC2: $(traceroute -m 10 $EC2_IP 2>&1 | head -5 | tr '\n' ' ' || echo 'Traceroute failed')"
-          echo ""
+      # - name: Terraform Init
+      #   run: |
+      #     cd terraform
+      #     echo "=== Terraform Initialization ==="
+      #     terraform init
+      #     echo "✅ Terraform initialized"
           
-          echo "🔑 SSH KEY VALIDATION:"
-          echo "======================="
-          echo "SSH key format check:"
-          ssh-keygen -l -f ~/.ssh/ec2-provisioning-key 2>&1 || echo "SSH key format validation failed"
-          echo ""
+      # - name: Terraform Plan
+      #   run: |
+      #     cd terraform
+      #     echo "=== Terraform Plan ==="
+      #     
+      #     if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+      #       echo "Running in dry-run mode"
+      #       terraform plan -var-file="terraform.tfvars"
+      #       else
+      #       terraform plan -var-file="terraform.tfvars" -out=tfplan
+      #     fi
+      #     
+      #     echo "✅ Terraform plan completed"
           
-          echo "🔌 SSH CONNECTION TEST:"
-          echo "========================"
-          echo "Connecting to EC2 instance at $EC2_IP (${{ env.EC2_IP_TYPE }} IP)..."
-          echo "SSH command: ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP 'echo \"SSH connection successful\"'"
-          echo ""
-          
-          # Test SSH connection with verbose logging
-          if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
-            echo "✅ SSH connection established"
-          else
-            echo "❌ Failed to establish SSH connection"
-            echo ""
-            echo "🔍 FAILURE ANALYSIS:"
-            echo "==================="
-            echo "SSH exit code: $?"
-            echo "Last SSH error: $?"
-            echo ""
-            echo "💡 TROUBLESHOOTING SUGGESTIONS:"
-            echo "==============================="
-            echo "1. Check if EC2 instance is running and accessible"
-            echo "2. Verify security group allows SSH (port 22) from GitHub Actions runner"
-            echo "3. Check if instance is in public subnet with internet access"
-            echo "4. Verify the SSH key is correct and has proper permissions"
-            echo "5. Check VPC route tables and network ACLs"
-            echo "6. Ensure the instance has a public IP if connecting from internet"
-            echo ""
-            exit 1
-          fi
-          
-          # Make the script executable
-          chmod +x scripts/install_users.sh
-          
-          # Read usernames from users.yaml dynamically
-          USERS=$(python3 -c "
-          import yaml
-          with open('users.yaml', 'r') as f:
-              data = yaml.safe_load(f)
-              users = [user['username'] for user in data['users']]
-              print(' '.join(users))
-          ")
-          
-          # Check if any users were found
-          if [ -z "$USERS" ]; then
-            echo "❌ No users found in users.yaml"
-            exit 1
-          fi
-          
-          # Install each user's public key using the script
-          for user in $USERS; do
-            if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
-              echo "Installing key for user: $user"
-              
-              # Read the public key content
-              PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
-              
-              # Call the user provisioning script
-              echo "Running user provisioning script for $user..."
-              if ./scripts/install_users.sh "$user" "$PUBLIC_KEY" "$SSH_USER" "$EC2_IP"; then
-                echo "✅ User $user provisioned successfully"
-              else
-                echo "❌ Failed to provision user $user"
-              exit 1
-              fi
-            else
-              echo "❌ SSH key for $user not found"
-              exit 1
-            fi
-          done
-          
-          echo "✅ All SSH keys installed on EC2 instance"
-          
-      - name: Verify User Access
-        if: github.event.inputs.dry_run != 'true'
-        run: |
-          echo "=== Verifying User Access ==="
-          
-          EC2_IP="${{ env.EC2_INSTANCE_IP }}"
-          TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-          
-          # Read usernames from users.yaml dynamically
-          USERS=$(python3 -c "
-          import yaml
-          with open('users.yaml', 'r') as f:
-              data = yaml.safe_load(f)
-              users = [user['username'] for user in data['users']]
-              print(' '.join(users))
-          ")
-          
-          echo "🔍 Verification Details:"
-          echo "- EC2 Instance IP: $EC2_IP"
-          echo "- Verification Timestamp: $TIMESTAMP"
-          echo "- Total Users to Verify: $(echo $USERS | wc -w)"
-          echo ""
-          
-          echo "📋 Users to verify: $USERS"
-          echo ""
-          
-          # Check if any users were found
-          if [ -z "$USERS" ]; then
-            echo "❌ No users found in users.yaml"
-            exit 1
-          fi
-          
-          # Test each user's SSH access with comprehensive verification
-          for user in $USERS; do
-            echo "🧪 Testing SSH access for user: $user"
-            echo "   └─ Creating temporary key file..."
-            
-            # Create a temporary private key file for testing
-            TEMP_KEY="/tmp/test_${user}_key"
-            cp "/tmp/ssh_keys/${user}_private_key" "$TEMP_KEY"
-            chmod 600 "$TEMP_KEY"
-            
-            echo "   └─ Testing basic SSH connection..."
-            # Test basic SSH connection
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 $user@$EC2_IP "echo '✅ Basic SSH connection successful for $user'"; then
-              echo "   ✅ Basic SSH connection: SUCCESS"
-            else
-              echo "   ❌ Basic SSH connection: FAILED"
-              rm -f "$TEMP_KEY"
-            exit 1
-          fi
-          
-            echo "   └─ Testing user identity and home directory..."
-            # Test user identity and home directory access
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "whoami && pwd && echo 'Home directory contents:' && ls -la"; then
-              echo "   ✅ User identity and home directory: SUCCESS"
-            else
-              echo "   ❌ User identity and home directory: FAILED"
-              rm -f "$TEMP_KEY"
-            exit 1
-          fi
-          
-            echo "   └─ Creating verification file in user's home directory..."
-            # Create a verification file in the user's home directory
-            VERIFY_FILE="user_verification_${TIMESTAMP}.txt"
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'User $user successfully logged in at $(date)' > ~/$VERIFY_FILE && echo 'Verification file created successfully' && ls -la ~/$VERIFY_FILE"; then
-              echo "   ✅ Verification file creation: SUCCESS"
-              echo "   📄 File created: ~/$VERIFY_FILE"
-            else
-              echo "   ❌ Verification file creation: FAILED"
-              rm -f "$TEMP_KEY"
-            exit 1
-          fi
-          
-            echo "   └─ Testing file write permissions..."
-            # Test file write permissions
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo 'Testing write permissions at $(date)' >> ~/$VERIFY_FILE && echo 'Write permissions test: SUCCESS'"; then
-              echo "   ✅ File write permissions: SUCCESS"
-            else
-              echo "   ❌ File write permissions: FAILED"
-              rm -f "$TEMP_KEY"
-              exit 1
-            fi
-            
-            echo "   └─ Displaying verification file contents..."
-            # Display the verification file contents
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no $user@$EC2_IP "echo '=== Verification File Contents ===' && cat ~/$VERIFY_FILE && echo '=== End of File ==='"; then
-              echo "   ✅ File read access: SUCCESS"
-            else
-              echo "   ❌ File read access: FAILED"
-              rm -f "$TEMP_KEY"
-            exit 1
-          fi
-          
-            echo "   └─ Testing SSH key authentication..."
-            # Test SSH key authentication specifically
-            if ssh -i "$TEMP_KEY" -o StrictHostKeyChecking=no -o PasswordAuthentication=no $user@$EC2_IP "echo 'SSH key authentication successful for $user'"; then
-              echo "   ✅ SSH key authentication: SUCCESS"
-            else
-              echo "   ❌ SSH key authentication: FAILED"
-              rm -f "$TEMP_KEY"
-            exit 1
-          fi
-          
-            # Clean up temporary key
-            rm -f "$TEMP_KEY"
-            
-            echo "🎉 User $user: ALL VERIFICATIONS PASSED ✅"
-            echo "   └─ SSH access: ✅"
-            echo "   └─ Home directory: ✅"
-            echo "   └─ File creation: ✅"
-            echo "   └─ Write permissions: ✅"
-            echo "   └─ Read permissions: ✅"
-            echo "   └─ Key authentication: ✅"
-            echo ""
-          done
-          
-          echo "🎊 VERIFICATION COMPLETE! 🎊"
-          echo "✅ All users can access EC2 instance successfully"
-          echo "✅ All users have proper file permissions"
-          echo "✅ All users can create and read files"
-          echo "✅ SSH key authentication working for all users"
-          echo ""
-          echo "📋 Verification Summary:"
-          echo "- Total users verified: $(echo $USERS | wc -w)"
-          echo "- Users: $USERS"
-          echo "- Verification timestamp: $TIMESTAMP"
-          echo "- All tests: PASSED ✅"
-          
-      - name: Create Terraform Variables (Simplified)
-        run: |
-          cd terraform
-          echo "=== Creating Simplified Terraform Variables ==="
-          
-          # Create minimal terraform.tfvars for user provisioning
-          # Note: instance_ids should be a list, not a string
-          INSTANCE_IDS="${{ inputs.instance_ids }}"
-          AWS_REGION="${{ inputs.aws_region }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
-          
-          echo "instance_ids = [\"$INSTANCE_IDS\"]" > terraform.tfvars
-          echo "aws_region = \"$AWS_REGION\"" >> terraform.tfvars
-          echo "dry_run = $DRY_RUN" >> terraform.tfvars
-          echo 'ssh_private_key_path = "~/.ssh/ec2-provisioning-key"' >> terraform.tfvars
-          echo 'ssh_user = "ec2-user"' >> terraform.tfvars
-          echo 'users_file = "../users.yaml"' >> terraform.tfvars
-          
-          echo "✅ terraform.tfvars created with proper formatting"
-          echo "Contents of terraform.tfvars:"
-          cat terraform.tfvars
-          
-      - name: Terraform Init
-        run: |
-          cd terraform
-          echo "=== Terraform Initialization ==="
-          terraform init
-          echo "✅ Terraform initialized"
-          
-      - name: Terraform Plan
-        run: |
-          cd terraform
-          echo "=== Terraform Plan ==="
-          
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            echo "Running in dry-run mode"
-            terraform plan -var-file="terraform.tfvars"
-          else
-            terraform plan -var-file="terraform.tfvars" -out=tfplan
-          fi
-          
-          echo "✅ Terraform plan completed"
-          
-      - name: Terraform Apply
-        if: github.event.inputs.dry_run != 'true'
-        run: |
-          cd terraform
-          echo "=== Terraform Apply ==="
-          
-          if [ -f "tfplan" ]; then
-            terraform apply -auto-approve tfplan
-            echo "✅ Terraform apply completed"
-          else
-            echo "❌ No plan file found"
-            exit 1
-          fi
+      # - name: Terraform Apply
+      #   if: github.event.inputs.dry_run != 'true'
+      #   run: |
+      #     cd terraform
+      #     echo "=== Terraform Apply ==="
+      #     
+      #     if [ -f "tfplan" ]; then
+      #       echo "No plan file found"
+      #       exit 1
+      #     fi
           
       - name: Send SSH Keys via Email
         if: github.event.inputs.send_emails == 'true'
@@ -899,7 +896,7 @@ jobs:
       - name: Success Summary
         run: |
           echo ""
-          echo "🎉 USER PROVISIONING COMPLETED SUCCESSFULLY! 🎉"
+          echo "🎉 SSH KEY GENERATION AND DISTRIBUTION COMPLETED! 🎉"
           echo ""
           # Read usernames from users.yaml dynamically
           USERS=$(python3 -c "
@@ -919,20 +916,14 @@ jobs:
           echo "📋 Summary:"
           echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
           echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
-          echo "- Users Created: $USERS"
-          echo "- SSH Keys: Available in S3 bucket and sent via email"
-          echo "- Access Verified: All users can SSH to EC2"
+          echo "- Users Processed: $USERS"
+          echo "- SSH Keys: Generated and stored in S3 bucket"
+          echo "- Keys Distributed: Sent via email to users"
           echo ""
-          echo "🔍 Verification Details:"
-          echo "- Verification Timestamp: $(date +"%Y%m%d-%H%M%S")"
-          echo "- Verification Files Created: user_verification_*.txt in each user's home directory"
-          echo "- All Users Tested: SSH access, file creation, read/write permissions, key authentication"
-          echo ""
-          echo "✅ Verification Results:"
-          echo "- SSH Access: All users can connect successfully"
-          echo "- File Operations: All users can create, read, and write files"
-          echo "- Permissions: All users have proper home directory access"
-          echo "- Authentication: SSH key-based authentication working for all users"
+          echo "🔍 Current Status:"
+          echo "- SSH Keys: ✅ Generated and stored in S3"
+          echo "- User Accounts: ⏳ Pending EC2 machine setup"
+          echo "- Machine Access: ⏳ Pending manual configuration"
           echo ""
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
             echo "📧 Email Delivery:"
@@ -944,12 +935,18 @@ jobs:
           echo "🔑 Next Steps:"
           echo "1. SSH keys available in S3 bucket: ec2-user-provisioning-keys-895583930163"
           if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
-            echo "2. Check email at your own email address for SSH keys"
+            echo "2. Users have received their SSH keys via email"
           fi
-          echo "3. Users connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
-          echo "4. All users have full access to their home directories"
-          echo "5. Verification files created: ~/user_verification_*.txt"
+          echo "3. Manual Setup Required: Create authorized_keys file on EC2 instance"
+          echo "4. Download public keys from S3 and add to ~/.ssh/authorized_keys"
+          echo "5. Once setup complete, users can connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
           echo ""
-          echo "🎯 No manual verification needed - all tests passed automatically!"
+          echo "📝 Manual Setup Instructions:"
+          echo "- Download public keys from S3 bucket: ec2-user-provisioning-keys-895583930163"
+          echo "- Create ~/.ssh/authorized_keys file on EC2 instance"
+          echo "- Add each user's public key to the authorized_keys file"
+          echo "- Set proper permissions: chmod 600 ~/.ssh/authorized_keys"
+          echo ""
+          echo "🎯 SSH keys are ready - machine setup pending manual configuration!"
 
  
