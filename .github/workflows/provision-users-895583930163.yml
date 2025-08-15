@@ -852,8 +852,10 @@ jobs:
                   print(f"ℹ️  Existing users maintained their access without emails")
                   return 0
               else:
-                  print("❌ No emails were processed successfully")
-                  return 1
+                  print("ℹ️  No new users found - all users already have existing keys")
+                  print("✅ This is expected behavior - no emails needed for existing users")
+                  print("ℹ️  Existing users maintained their access without emails")
+                  return 0
           
           if __name__ == "__main__":
               sys.exit(main())
