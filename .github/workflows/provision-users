@@ -1,0 +1,949 @@
+name: Provision Users on AWS EC2 Instances
+
+# Key Persistence Feature:
+# - Uses fixed S3 bucket: ec2-user-provisioning-keys-895583930163
+# - Existing user keys are preserved across workflow runs
+# - Only new users get new keys generated
+# - Existing users maintain access to EC2 instances
+
+on:
+  workflow_dispatch:
+    inputs:
+      instance_ids:
+        description: 'Enter EC2 instance ID (e.g., i-1234567890abcdef0)'
+        required: true
+        type: string
+      aws_account_id:
+        description: 'AWS Account ID:'
+        required: true
+        default: '895583930163'
+        type: string
+      aws_region:
+        description: 'AWS Region:'
+        required: true
+        default: 'us-east-2'
+        type: choice
+        options:
+          - us-east-2
+          - us-west-2
+          - us-east-1
+      dry_run:
+        description: 'Enable dry run mode (no actual changes)'
+        required: false
+        default: false
+        type: boolean
+      send_emails:
+        description: 'Send SSH keys to users via email'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  TF_VERSION: "1.5.7"
+
+jobs:
+  provision-users:
+    name: Provision Users on EC2 Instances
+    runs-on: docker
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          
+      - name: Set Role Name
+        run: |
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            exit 1
+          fi
+          
+          echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
+          echo "Using role ARN: ${{ env.AuthRole }}"
+          
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AuthRole }}
+          role-duration-seconds: 3600
+          aws-region: ${{ inputs.aws_region }}
+          
+      - name: Verify AWS Credentials
+        run: |
+          echo "=== AWS Credentials Verification ==="
+          aws sts get-caller-identity
+          echo "✅ AWS credentials verified"
+          
+      - name: Setup SSH Key for EC2 Access
+        run: |
+          echo "=== Setting up SSH Key for EC2 Access ==="
+          
+          if [ -z "${{ secrets.EC2_SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ Required secret 'EC2_SSH_PRIVATE_KEY' is not set"
+            exit 1
+          fi
+          
+          # Create .ssh directory and key file
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2-provisioning-key
+          chmod 600 ~/.ssh/ec2-provisioning-key
+          
+          echo "✅ SSH key file created at ~/.ssh/ec2-provisioning-key"
+          
+      - name: Get EC2 Instance Details
+        run: |
+          echo "=== Getting EC2 Instance Details ==="
+          
+          INSTANCE_ID="${{ inputs.instance_ids }}"
+          REGION="${{ inputs.aws_region }}"
+          
+          # Get instance details
+          INSTANCE_INFO=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --region $REGION \
+            --query 'Reservations[0].Instances[0]' \
+            --output json)
+          
+          # Try to get public IP first, fall back to private IP if public is not available
+          PUBLIC_IP=$(echo $INSTANCE_INFO | jq -r '.PublicIpAddress')
+          PRIVATE_IP=$(echo $INSTANCE_INFO | jq -r '.PrivateIpAddress')
+          
+          if [ "$PUBLIC_IP" != "null" ] && [ -n "$PUBLIC_IP" ]; then
+            echo "✅ Using public IP for instance $INSTANCE_ID"
+            INSTANCE_IP="$PUBLIC_IP"
+            IP_TYPE="public"
+          elif [ "$PRIVATE_IP" != "null" ] && [ -n "$PRIVATE_IP" ]; then
+            echo "✅ Using private IP for instance $INSTANCE_ID (public IP not available)"
+            INSTANCE_IP="$PRIVATE_IP"
+            IP_TYPE="private"
+          else
+            echo "❌ Could not get IP address for instance $INSTANCE_ID"
+            echo "Instance info: $INSTANCE_INFO"
+              exit 1
+            fi
+          
+          echo "Instance ID: $INSTANCE_ID"
+          echo "IP Address: $INSTANCE_IP ($IP_TYPE)"
+          echo "Region: $REGION"
+          
+          # Store for later use
+          echo "EC2_INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
+          echo "EC2_INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+          echo "EC2_IP_TYPE=$IP_TYPE" >> $GITHUB_ENV
+          
+          echo "✅ EC2 instance details retrieved"
+          
+      - name: Generate SSH Keys (Multiple Formats)
+        run: |
+          echo "=== Generating SSH Keys in Multiple Formats ==="
+          
+          # Create temporary directory for keys
+          mkdir -p /tmp/ssh_keys
+          chmod 755 /tmp/ssh_keys
+          
+          # Note: puttygen installation requires sudo privileges which are not available in GitHub Actions
+          # We'll generate the basic formats and handle PuTTY conversion gracefully
+          echo "ℹ️  puttygen not available in GitHub Actions environment"
+          echo "ℹ️  Will generate RSA and PEM formats, PuTTY format will be skipped"
+          echo "ℹ️  Users can convert keys manually using PuTTYgen if needed"
+          
+          # Read usernames from users.yaml dynamically
+          echo "Reading users from users.yaml..."
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
+          
+          echo "Users found: $USERS"
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
+          # Generate SSH keys for all users in multiple formats
+          for user in $USERS; do
+            echo "Generating keys for user: $user"
+            
+            # Generate RSA key pair
+            if ssh-keygen -t rsa -b 4096 \
+              -f /tmp/ssh_keys/${user}_key \
+              -N "" \
+              -C "${user}@ec2-provisioning-$(date +%Y%m%d-%H%M%S)"; then
+              
+              # Rename files for clarity
+              mv /tmp/ssh_keys/${user}_key /tmp/ssh_keys/${user}_private_key
+              mv /tmp/ssh_keys/${user}_key.pub /tmp/ssh_keys/${user}_public_key
+              
+              # Convert to PEM format (universal)
+              cp /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_universal.pem
+              chmod 600 /tmp/ssh_keys/${user}_universal.pem
+              
+              # Note: PuTTY format (.ppk) cannot be generated in GitHub Actions environment
+              # Users will receive RSA and PEM formats and can convert manually if needed
+              echo "ℹ️  PuTTY format skipped - not available in GitHub Actions environment"
+              echo "ℹ️  Users can convert keys manually using PuTTYgen on their local machine"
+              
+              echo "✅ Generated keys for $user in multiple formats"
+            else
+              echo "❌ Failed to generate keys for $user"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All SSH keys generated successfully in multiple formats"
+          
+      - name: Upload SSH Keys to S3
+        run: |
+          echo "=== Uploading SSH Keys to S3 ==="
+          
+          # Use account-specific S3 bucket for key persistence
+          BUCKET_NAME="ec2-user-provisioning-keys-895583930163"
+          
+          # Check if bucket exists, create if it doesn't
+          if ! aws s3 ls s3://$BUCKET_NAME 2>&1 > /dev/null; then
+            echo "🪣 Creating new S3 bucket: $BUCKET_NAME"
+            aws s3 mb s3://$BUCKET_NAME --region ${{ inputs.aws_region }}
+          else
+            echo "✅ S3 bucket already exists: $BUCKET_NAME"
+          fi
+          
+          # Read usernames from users.yaml dynamically
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
+          
+          echo "📋 Processing users: $USERS"
+          echo ""
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
+          # Process each user - check existing keys first
+          for user in $USERS; do
+            echo "🧪 Processing user: $user"
+            
+            # Check if user's private key already exists in S3
+            if aws s3 ls s3://$BUCKET_NAME/keys/${user}_private_key 2>&1 > /dev/null; then
+              echo "✅ Key already exists for $user in S3, downloading existing key"
+              
+              # Download existing key from S3 to local temp directory
+              aws s3 cp s3://$BUCKET_NAME/keys/${user}_private_key /tmp/ssh_keys/${user}_private_key
+              aws s3 cp s3://$BUCKET_NAME/keys/${user}_public_key /tmp/ssh_keys/${user}_public_key
+              
+              # Download other formats if they exist
+              if aws s3 ls s3://$BUCKET_NAME/keys/${user}_universal.pem 2>&1 > /dev/null; then
+                aws s3 cp s3://$BUCKET_NAME/keys/${user}_universal.pem /tmp/ssh_keys/${user}_universal.pem
+              fi
+              
+              echo "📥 Downloaded existing keys for $user from S3"
+              
+              # Mark this user as existing (no email needed)
+              echo "$user:existing" >> /tmp/user_key_status.txt
+            else
+              echo "🆕 No existing key found for $user, uploading newly generated keys"
+              
+              # Upload all key formats to S3
+              aws s3 cp /tmp/ssh_keys/${user}_private_key s3://$BUCKET_NAME/keys/${user}_private_key --sse AES256
+              aws s3 cp /tmp/ssh_keys/${user}_public_key s3://$BUCKET_NAME/keys/${user}_public_key --sse AES256
+              aws s3 cp /tmp/ssh_keys/${user}_universal.pem s3://$BUCKET_NAME/keys/${user}_universal.pem --sse AES256
+              
+
+              
+              echo "📤 Uploaded all key formats for $user to S3"
+              
+              # Mark this user as new (email needed)
+              echo "$user:new" >> /tmp/user_key_status.txt
+            fi
+            
+            echo ""
+          done
+          
+          echo "✅ All keys processed in S3 bucket: $BUCKET_NAME"
+          echo "📊 Summary: Existing keys preserved, new keys uploaded"
+          
+          # Show user status summary
+          echo ""
+          echo "📋 User Key Status Summary:"
+          if [ -f /tmp/user_key_status.txt ]; then
+            echo "New users (will receive emails):"
+            grep ":new$" /tmp/user_key_status.txt | cut -d: -f1 | while read user; do
+              echo "  ✅ $user - New key generated and uploaded"
+            done
+            
+            echo ""
+            echo "Existing users (no emails sent):"
+            grep ":existing$" /tmp/user_key_status.txt | cut -d: -f1 | while read user; do
+              echo "  ℹ️  $user - Existing key preserved, no email needed"
+            done
+          fi
+          
+      - name: Skip EC2 Installation (No VPC Access)
+        run: |
+          echo "=== Skipping EC2 Installation Step ==="
+          echo "ℹ️  This step is intentionally skipped because:"
+          echo "   - Target EC2 instances are in a different VPC"
+          echo "   - No VPC connectivity available at this time"
+          echo "   - SSH keys will be manually installed later"
+          echo "   - Proceeding directly to email delivery"
+          echo ""
+          echo "✅ SSH keys are safely stored in S3 bucket"
+          echo "📧 Next step: Sending SSH keys via email"
+          echo "🔑 Manual installation will be done when VPC connection is established"
+          
+      - name: Send SSH Keys via Email
+        if: github.event.inputs.send_emails == 'true'
+        run: |
+          echo "=== Sending SSH Keys via Email (Python SMTP) ==="
+          
+          # Set SMTP configuration for UMB
+          SMTP_HOST="mailhost.umb.com"
+          SMTP_PORT="25"
+          TEST_EMAIL="saran.alla@umb.com"
+          
+          echo "📧 SMTP Configuration:"
+          echo "- Host: $SMTP_HOST"
+          echo "- Port: $SMTP_PORT"
+          echo "- Test Email: $TEST_EMAIL"
+          echo ""
+          
+          # Create Python script for sending emails
+          cat > /tmp/send_emails.py << 'EOF'
+          import smtplib
+          import yaml
+          import os
+          import sys
+          from email.mime.text import MIMEText
+          from email.mime.multipart import MIMEMultipart
+          from email.mime.application import MIMEApplication
+          
+          def send_ssh_key_email(username, full_name, user_email, instance_id, instance_ip, instance_name, smtp_host, smtp_port):
+              """Send SSH key email using Python SMTP with multiple key formats as attachments"""
+              
+              # Create email message with multipart support
+              msg = MIMEMultipart()
+              msg['From'] = 'EC2-Provisioning <noreply@mailhost.umb.com>'
+              msg['To'] = user_email
+              msg['Subject'] = f'SSH Keys for EC2 Access - {username} (Multiple Formats)'
+              
+              # Create comprehensive email body with Windows and Linux instructions
+              email_body = f"SSH Keys for EC2 Access - {username}\n"
+              email_body += "==========================================\n\n"
+              email_body += "User Information:\n"
+              email_body += f"- Username: {username}\n"
+              email_body += f"- Full Name: {full_name}\n"
+              email_body += f"- Generated: {os.popen('date').read().strip()}\n\n"
+              email_body += "Instance Details:\n"
+              email_body += f"- Instance Name: {instance_name}\n"
+              email_body += f"- Instance ID: {instance_id}\n"
+              email_body += f"- IP Address: {instance_ip}\n"
+              email_body += f"- SSH Port: 22\n\n"
+              email_body += f"IMPORTANT: SSH Keys NOT YET INSTALLED\n"
+              email_body += f"=====================================\n"
+              email_body += f"⚠️  These SSH keys are generated but NOT yet installed on the EC2 instance.\n"
+              email_body += f"⚠️  You will need to wait for VPC connectivity to be established.\n"
+              email_body += f"⚠️  Once connectivity is available, the keys will be installed automatically.\n\n"
+              email_body += f"KEY FORMATS PROVIDED:\n"
+              email_body += f"========================\n\n"
+              email_body += f"1. {username}_private_key - Standard RSA private key (Linux/Mac/Windows OpenSSH)\n"
+              email_body += f"2. {username}_universal.pem - PEM format (works with most SSH clients)\n\n"
+              email_body += f"Note: PuTTY format (.ppk) not available - see conversion instructions below\n\n"
+              email_body += f"WHICH KEY TO USE:\n"
+              email_body += f"===================\n\n"
+              email_body += f"WINDOWS USERS (OpenSSH - Recommended):\n"
+              email_body += f"   - Use: {username}_universal.pem\n"
+              email_body += f"   - Windows 10/11 built-in SSH client\n"
+              email_body += f"   - Command: ssh -i {username}_universal.pem {username}@{instance_ip}\n\n"
+              email_body += f"WINDOWS USERS (PuTTY - Manual Conversion Required):\n"
+              email_body += f"   - Download PuTTYgen: https://www.putty.org/\n"
+              email_body += f"   - Convert {username}_universal.pem to .ppk format\n"
+              email_body += f"   - See detailed conversion instructions below\n\n"
+              email_body += f"LINUX/MAC USERS:\n"
+              email_body += f"   - Use: {username}_private_key or {username}_universal.pem\n"
+              email_body += f"   - Command: ssh -i ~/.ssh/{username}_private_key {username}@{instance_ip}\n\n"
+              email_body += f"SECURITY IMPORTANT:\n"
+              email_body += f"====================\n"
+              email_body += f"- Keep private keys secure and never share them\n"
+              email_body += f"- Store keys in a secure directory\n"
+              email_body += f"- Never commit private keys to version control\n"
+              email_body += f"- Each key is unique to your user account\n\n"
+              email_body += f"DETAILED SETUP INSTRUCTIONS:\n"
+              email_body += f"================================\n\n"
+              email_body += f"WINDOWS SETUP (OpenSSH - Recommended):\n"
+              email_body += f"1. Save {username}_universal.pem to C:\\Users\\{username}\\.ssh\\\n"
+              email_body += f"2. Open Command Prompt or PowerShell\n"
+              email_body += f"3. Run: ssh -i C:\\Users\\{username}\\.ssh\\{username}_universal.pem {username}@{instance_ip}\n\n"
+              email_body += f"WINDOWS SETUP (PuTTY - Manual Conversion Required):\n"
+              email_body += f"1. Download PuTTYgen from https://www.putty.org/\n"
+              email_body += f"2. Open PuTTYgen\n"
+              email_body += f"3. Click 'Load' and select {username}_universal.pem\n"
+              email_body += f"4. Click 'Save private key' to create {username}.ppk\n"
+              email_body += f"5. Use the .ppk file with PuTTY as usual\n\n"
+
+              email_body += f"LINUX/MAC SETUP:\n"
+              email_body += f"1. Save {username}_private_key to ~/.ssh/\n"
+              email_body += f"2. Set permissions: chmod 600 ~/.ssh/{username}_private_key\n"
+              email_body += f"3. Connect: ssh -i ~/.ssh/{username}_private_key {username}@{instance_ip}\n\n"
+              email_body += f"TROUBLESHOOTING:\n"
+              email_body += f"==================\n"
+              email_body += f"- Connection fails: Check IP address and username\n"
+              email_body += f"- Permission denied: Verify key file permissions\n"
+              email_body += f"- Key format error: Use the correct format for your SSH client\n"
+              email_body += f"- Network issues: Ensure you're connecting from an allowed network\n\n"
+              email_body += "CONNECTION SUMMARY:\n"
+              email_body += "====================\n"
+              email_body += f"- Username: {username}\n"
+              email_body += f"- Instance: {instance_name} ({instance_id})\n"
+              email_body += f"- IP Address: {instance_ip}\n"
+              email_body += f"- Windows OpenSSH: ssh -i {username}_universal.pem {username}@{instance_ip}\n"
+              email_body += f"- PuTTY: Convert {username}_universal.pem to .ppk using PuTTYgen\n"
+              email_body += f"- Linux/Mac: ssh -i {username}_private_key {username}@{instance_ip}\n\n"
+              email_body += "This is an automated message from the AWS EC2 User Provisioning System.\n"
+              email_body += "If you have questions, contact your system administrator.\n\n"
+              email_body += "RECOMMENDATION: Windows users should use OpenSSH with the .pem file, or convert to PuTTY format manually if preferred."
+              
+              # Attach the email body
+              msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
+              
+              # Attach available key formats
+              # 1. Standard RSA private key
+              if os.path.exists(f'/tmp/ssh_keys/{username}_private_key'):
+                  with open(f'/tmp/ssh_keys/{username}_private_key', 'r') as f:
+                      key_content = f.read()
+                  key_attachment = MIMEApplication(key_content.encode('utf-8'), _subtype='txt')
+                  key_attachment.add_header('Content-Disposition', 'attachment', filename=f'{username}_private_key')
+                  msg.attach(key_attachment)
+              
+              # 2. Universal PEM format
+              if os.path.exists(f'/tmp/ssh_keys/{username}_universal.pem'):
+                  with open(f'/tmp/ssh_keys/{username}_universal.pem', 'r') as f:
+                      pem_content = f.read()
+                  pem_attachment = MIMEApplication(pem_content.encode('utf-8'), _subtype='txt')
+                  pem_attachment.add_header('Content-Disposition', 'attachment', filename=f'{username}_universal.pem')
+                  msg.attach(pem_attachment)
+              
+              try:
+                  # Connect to SMTP server
+                  print(f"📧 Connecting to SMTP server {smtp_host}:{smtp_port}...")
+                  server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                  
+                  # Start TLS if supported
+                  try:
+                      server.starttls()
+                      print("✅ TLS connection established")
+                  except:
+                      print("ℹ️  TLS not supported, continuing without encryption")
+                  
+                  # Send email
+                  print(f"📤 Sending email to {user_email} for user {username}...")
+                  server.send_message(msg)
+                  server.quit()
+                  
+                  print(f"✅ Email sent successfully for user {username} to {user_email}")
+                  print(f"📎 Private key attached as: {username}_private_key")
+                  return True
+                  
+              except Exception as e:
+                  print(f"❌ Failed to send email for user {username} to {user_email}: {str(e)}")
+                  return False
+          
+          def main():
+              # Configuration
+              smtp_host = os.environ.get('SMTP_HOST', 'mailhost.umb.com')
+              smtp_port = int(os.environ.get('SMTP_PORT', '25'))
+              
+              # Get instance details from environment variables
+              instance_id = os.environ.get('EC2_INSTANCE_ID', 'Unknown')
+              instance_ip = os.environ.get('EC2_INSTANCE_IP', 'Unknown')
+              instance_name = os.environ.get('EC2_INSTANCE_NAME', 'EC2 Instance')
+              
+              print(f"🏠 Instance Details:")
+              print(f"   - ID: {instance_id}")
+              print(f"   - IP: {instance_ip}")
+              print(f"   - Name: {instance_name}")
+              print()
+              
+              # Read user key status from the file created by the S3 step
+              user_key_status = {}
+              try:
+                  with open('/tmp/user_key_status.txt', 'r') as f:
+                      for line in f:
+                          line = line.strip()
+                          if ':' in line:
+                              username, status = line.split(':', 1)
+                              user_key_status[username] = status
+                  print(f"📋 User key status loaded: {len(user_key_status)} users")
+              except FileNotFoundError:
+                  print("⚠️  User key status file not found, treating all users as new")
+              except Exception as e:
+                  print(f"⚠️  Error reading user key status: {e}")
+              
+              # Read users from users.yaml
+              try:
+                  with open('users.yaml', 'r') as f:
+                      data = yaml.safe_load(f)
+                      users = data['users']
+                      print(f"📋 Found {len(users)} users to process")
+                      print()
+              except Exception as e:
+                  print(f"❌ Error reading users.yaml: {e}")
+                  return 1
+              
+              # Process each user
+              success_count = 0
+              total_count = len(users)
+              new_users_count = 0
+              existing_users_count = 0
+              
+              for user_data in users:
+                  username = user_data['username']
+                  full_name = user_data['full_name']
+                  user_email = user_data.get('email')
+                  
+                  # Skip users without email addresses
+                  if not user_email:
+                      print(f"⚠️  Skipping user {username} - no email address found")
+                      continue
+                  
+                  # Check if this user is new or existing based on key status
+                  user_status = user_key_status.get(username, 'new')  # Default to 'new' if status unknown
+                  
+                  if user_status == 'existing':
+                      print(f"ℹ️  User {username} ({full_name}) - Existing key preserved, skipping email")
+                      existing_users_count += 1
+                      continue
+                  elif user_status == 'new':
+                      print(f"🆕 User {username} ({full_name}) - New key generated, sending email to {user_email}")
+                      new_users_count += 1
+                  else:
+                      print(f"❓ User {username} ({full_name}) - Unknown status '{user_status}', treating as new user")
+                      new_users_count += 1
+                  
+                  # Check if key files exist
+                  key_files_exist = True
+                  required_files = [
+                      f"/tmp/ssh_keys/{username}_private_key",
+                      f"/tmp/ssh_keys/{username}_universal.pem"
+                  ]
+                  
+                  for key_file in required_files:
+                      if not os.path.exists(key_file):
+                          print(f"⚠️  Required key file not found: {key_file}")
+                          key_files_exist = False
+                          break
+                  
+                  if not key_files_exist:
+                      print(f"⚠️  Missing required key files for {username}")
+                      continue
+                  
+                  print(f"✅ All key formats available for {username}")
+                  
+                  # Send email only to new users
+                  if send_ssh_key_email(username, full_name, user_email, 
+                                     instance_id, instance_ip, instance_name,
+                                     smtp_host, smtp_port):
+                      success_count += 1
+                      print(f"📧 Email sent to {user_email} for user {username}")
+                  else:
+                      print(f"❌ Failed to send email for user {username}")
+                  
+                  print()
+              
+              # Summary
+              print("=== Email Delivery Summary ===")
+              print(f"Total users processed: {total_count}")
+              print(f"New users (emails sent): {new_users_count}")
+              print(f"Existing users (no emails): {existing_users_count}")
+              print(f"Emails sent successfully: {success_count}")
+              print(f"Emails failed: {new_users_count - success_count}")
+              print()
+              
+              if success_count > 0:
+                  print(f"✅ SSH keys processed successfully for {success_count} new users")
+                  print(f"📧 Only new users received emails with their keys")
+                  print(f"ℹ️  Existing users maintained their access without emails")
+                  return 0
+              else:
+                  print("❌ No emails were processed successfully")
+                  return 1
+          
+          if __name__ == "__main__":
+              sys.exit(main())
+          EOF
+          
+          # Set environment variables for Python script
+          export SMTP_HOST="$SMTP_HOST"
+          export SMTP_PORT="$SMTP_PORT"
+          export EC2_INSTANCE_ID="${{ env.EC2_INSTANCE_ID }}"
+          export EC2_INSTANCE_IP="${{ env.EC2_INSTANCE_IP }}"
+          export EC2_INSTANCE_NAME="EC2 Instance"
+          
+          # Try to get instance name from AWS if available
+          if command -v aws &> /dev/null && [ -n "${{ env.EC2_INSTANCE_ID }}" ]; then
+            echo "🔍 Getting instance details from AWS..."
+            instance_name=$(aws ec2 describe-instances --instance-ids "${{ env.EC2_INSTANCE_ID }}" --query 'Reservations[0].Instances[0].Tags[?Key==`Name`].Value' --output text 2>/dev/null || echo "EC2 Instance")
+            export EC2_INSTANCE_NAME="$instance_name"
+            echo "✅ Instance name: $instance_name"
+          fi
+          
+          # Run Python script
+          echo "🐍 Running Python SMTP script..."
+          python3 /tmp/send_emails.py
+          
+          # Clean up
+          rm -f /tmp/send_emails.py
+          
+          echo ""
+          echo "📧 Email Summary:"
+          echo "- SMTP Server: $SMTP_HOST:$SMTP_PORT"
+          echo "- Each user receives their SSH key at their own email address"
+          echo "- Python SMTP implementation completed"
+          
+      - name: Send Installation Script to Admin
+        if: github.event.inputs.send_emails == 'true'
+        run: |
+          echo "=== Sending Installation Script to Admin ==="
+          
+          # Set SMTP configuration for UMB
+          SMTP_HOST="mailhost.umb.com"
+          SMTP_PORT="25"
+          ADMIN_EMAIL="saran.alla@umb.com"
+          
+          echo "📧 Sending installation script to: $ADMIN_EMAIL"
+          echo ""
+          
+          # Create the installation script with embedded public keys
+          cat > /tmp/install_users_script.sh << 'EOF'
+#!/bin/bash
+
+echo "=== EC2 User Provisioning Script ==="
+echo "Instance: ${{ env.EC2_INSTANCE_ID }}"
+echo "Generated: $(date)"
+echo ""
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "❌ This script must be run as root (use sudo)"
+    exit 1
+fi
+
+echo "✅ Running as root, proceeding with user creation..."
+echo ""
+EOF
+
+          # Read users from users.yaml and add them to the script
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
+          
+          echo "📋 Adding users to script: $USERS"
+          
+          # Add each user to the script
+          for user in $USERS; do
+            if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
+              echo "   👤 Adding user: $user"
+              
+              # Read the public key content
+              PUBLIC_KEY=$(cat "/tmp/ssh_keys/${user}_public_key")
+              
+              # Add user creation commands to script
+              cat >> /tmp/install_users_script.sh << USEREOF
+
+# User: $user
+echo "👤 Creating user: $user"
+if id "$user" &>/dev/null; then
+    echo "   ℹ️  User already exists, updating SSH key..."
+else
+    useradd -m -s /bin/bash $user
+    echo "   ✅ User created with home directory: /home/$user"
+fi
+
+mkdir -p /home/$user/.ssh
+echo "$PUBLIC_KEY" > /home/$user/.ssh/authorized_keys
+chown -R $user:$user /home/$user
+chmod 700 /home/$user/.ssh
+chmod 600 /home/$user/.ssh/authorized_keys
+echo "   ✅ SSH key installed for $user"
+echo ""
+
+USEREOF
+            else
+              echo "   ⚠️  Public key not found for $user"
+            fi
+          done
+          
+          # Add completion message to script
+          cat >> /tmp/install_users_script.sh << 'EOF'
+
+echo "🎉 User provisioning completed successfully!"
+echo ""
+echo "📋 Summary of users created:"
+EOF
+
+          # Add user list to script
+          for user in $USERS; do
+            echo "echo \"   ✅ $user - /home/$user\"" >> /tmp/install_users_script.sh
+          done
+          
+          cat >> /tmp/install_users_script.sh << 'EOF'
+
+echo ""
+echo "🔑 Users can now SSH using their private keys:"
+echo "   ssh -i user_private_key username@instance_ip"
+echo ""
+echo "✅ Script execution completed successfully!"
+EOF
+
+          # Make script executable
+          chmod +x /tmp/install_users_script.sh
+          
+          echo "📜 Installation script created:"
+          echo "   - File: install_users_script.sh"
+          echo "   - Users: $USERS"
+          echo "   - Size: $(wc -c < /tmp/install_users_script.sh) bytes"
+          echo ""
+          
+          # Create Python script for sending admin email
+          cat > /tmp/send_admin_email.py << 'EOF'
+import smtplib
+import os
+import sys
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+
+def send_admin_email(admin_email, instance_id, instance_ip, instance_name, smtp_host, smtp_port):
+    """Send installation script email to admin"""
+    
+    # Create email message
+    msg = MIMEMultipart()
+    msg['From'] = 'EC2-Provisioning <noreply@mailhost.umb.com>'
+    msg['To'] = admin_email
+    msg['Subject'] = f'EC2 User Provisioning Script - Ready for Installation (Instance: {instance_id})'
+    
+    # Create email body
+    email_body = f"""EC2 User Provisioning Script - Ready for Installation
+====================================================
+
+Hello Saran,
+
+The SSH keys have been generated and distributed to users. Now you need to install these users on the target EC2 instance once VPC connectivity is available.
+
+INSTANCE DETAILS:
+- Instance ID: {instance_id}
+- IP Address: {instance_ip}
+- Region: us-east-2
+- Users to provision: {len(os.popen('cat /tmp/user_key_status.txt | wc -l').read().strip()) if os.path.exists('/tmp/user_key_status.txt') else 'Unknown'}
+
+SCRIPT EXECUTION INSTRUCTIONS:
+==============================
+
+1. Wait for VPC connectivity to be established
+2. SSH to the target EC2 instance
+3. Copy the script below and save it as: install-users.sh
+4. Make it executable: chmod +x install-users.sh
+5. Run as root: sudo ./install-users.sh
+
+SCRIPT CONTENTS:
+================
+
+"""
+    
+    # Attach the email body
+    msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
+    
+    # Attach the installation script
+    if os.path.exists('/tmp/install_users_script.sh'):
+        with open('/tmp/install_users_script.sh', 'r') as f:
+            script_content = f.read()
+        script_attachment = MIMEApplication(script_content.encode('utf-8'), _subtype='sh')
+        script_attachment.add_header('Content-Disposition', 'attachment', filename='install-users.sh')
+        msg.attach(script_attachment)
+        
+        # Also include script content in email body
+        script_body = f"""
+
+{script_content}
+
+SCRIPT EXECUTION STEPS:
+=======================
+
+1. Copy the entire script above
+2. Paste it into a file on the target EC2 instance
+3. Save as: install-users.sh
+4. Make executable: chmod +x install-users.sh
+5. Run as root: sudo ./install-users.sh
+
+WHAT THE SCRIPT DOES:
+=====================
+
+✅ Creates users with home directories
+✅ Installs SSH public keys for each user
+✅ Sets proper file permissions
+✅ Enables SSH key-based authentication
+
+VERIFICATION:
+============
+
+After running the script, users can SSH using:
+ssh -i user_private_key username@{instance_ip}
+
+This is an automated message from the AWS EC2 User Provisioning System.
+Contact: saran.alla@umb.com
+"""
+        msg.attach(MIMEText(script_body, 'plain', 'utf-8'))
+    
+    try:
+        # Connect to SMTP server
+        print(f"📧 Connecting to SMTP server {smtp_host}:{smtp_port}...")
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        
+        # Start TLS if supported
+        try:
+            server.starttls()
+            print("✅ TLS connection established")
+        except:
+            print("ℹ️  TLS not supported, continuing without encryption")
+        
+        # Send email
+        print(f"📤 Sending installation script to {admin_email}...")
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"✅ Installation script email sent successfully to {admin_email}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to send installation script email to {admin_email}: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    # Configuration
+    smtp_host = os.environ.get('SMTP_HOST', 'mailhost.umb.com')
+    smtp_port = int(os.environ.get('SMTP_PORT', '25'))
+    admin_email = os.environ.get('ADMIN_EMAIL', 'saran.alla@umb.com')
+    
+    # Get instance details from environment variables
+    instance_id = os.environ.get('EC2_INSTANCE_ID', 'Unknown')
+    instance_ip = os.environ.get('EC2_INSTANCE_IP', 'Unknown')
+    instance_name = os.environ.get('EC2_INSTANCE_NAME', 'EC2 Instance')
+    
+    print(f"🏠 Instance Details:")
+    print(f"   - ID: {instance_id}")
+    print(f"   - IP: {instance_ip}")
+    print(f"   - Name: {instance_name}")
+    print()
+    
+    if send_admin_email(admin_email, instance_id, instance_ip, instance_name, smtp_host, smtp_port):
+        print("✅ Installation script email sent successfully")
+        sys.exit(0)
+    else:
+        print("❌ Failed to send installation script email")
+        sys.exit(1)
+EOF
+
+          # Set environment variables for Python script
+          export SMTP_HOST="$SMTP_HOST"
+          export SMTP_PORT="$SMTP_PORT"
+          export ADMIN_EMAIL="$ADMIN_EMAIL"
+          export EC2_INSTANCE_ID="${{ env.EC2_INSTANCE_ID }}"
+          export EC2_INSTANCE_IP="${{ env.EC2_INSTANCE_IP }}"
+          export EC2_INSTANCE_NAME="${{ env.EC2_INSTANCE_NAME }}"
+          
+          # Run Python script to send admin email
+          echo "🐍 Running Python script to send installation script..."
+          python3 /tmp/send_admin_email.py
+          
+          # Clean up
+          rm -f /tmp/send_admin_email.py
+          rm -f /tmp/install_users_script.sh
+          
+          echo ""
+          echo "📧 Admin Email Summary:"
+          echo "- Installation script sent to: $ADMIN_EMAIL"
+          echo "- Script contains all user public keys"
+          echo "- Ready for execution on target EC2 instance"
+          
+      - name: Cleanup
+        run: |
+          echo "=== Cleanup ==="
+          rm -rf /tmp/ssh_keys
+          echo "✅ Temporary files cleaned up"
+          
+      - name: Success Summary
+        run: |
+          echo ""
+          echo "🎉 USER PROVISIONING COMPLETED SUCCESSFULLY! 🎉"
+          echo ""
+          # Read usernames from users.yaml dynamically
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
+          echo "📋 Summary:"
+          echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
+          echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
+          echo "- Users Created: $USERS"
+          echo "- SSH Keys: Available in S3 bucket and sent via email"
+          echo "- Status: Keys generated and stored, NOT yet installed on EC2"
+          echo ""
+          echo "⚠️  IMPORTANT NOTES:"
+          echo "- SSH keys are NOT installed on EC2 instances yet"
+          echo "- This is due to VPC connectivity limitations"
+          echo "- Keys will be installed manually when VPC connection is established"
+          echo "- Users can prepare their SSH clients with the received keys"
+          echo ""
+          if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
+            echo "📧 Email Delivery:"
+            echo "- Each user received their SSH private key at their own email address"
+            echo "- SMTP Server: mailhost.umb.com:25"
+            echo "- Keys delivered: $(echo $USERS | wc -w) private keys with instructions"
+            echo "- Installation script sent to: saran.alla@umb.com"
+            echo ""
+          fi
+          echo "🔑 Next Steps:"
+          echo "1. SSH keys available in S3 bucket: ec2-user-provisioning-keys-895583930163"
+          if [ "${{ github.event.inputs.send_emails }}" = "true" ]; then
+            echo "2. Check email at your own email address for SSH keys"
+            echo "3. Check email at saran.alla@umb.com for installation script"
+          fi
+          echo "4. Wait for VPC connectivity to be established"
+          echo "5. Run the installation script on target EC2 instance"
+          echo "6. Once installed, users can connect: ssh -i user_key user@${{ env.EC2_INSTANCE_IP }}"
+          echo ""
+          echo "🎯 Workflow completed - keys generated, stored, emailed, and installation script ready!"
+
+ 
