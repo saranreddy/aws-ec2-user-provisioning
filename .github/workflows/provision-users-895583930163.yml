@@ -766,12 +766,13 @@ jobs:
               except Exception as e:
                   print(f"⚠️  Error reading user key status: {e}")
               
-              # Read users from users.yaml
+              # Read users from users.yaml (only enabled users)
               try:
                   with open('users.yaml', 'r') as f:
                       data = yaml.safe_load(f)
-                      users = data['users']
-                      print(f"📋 Found {len(users)} users to process")
+                      # Filter for only enabled users (not commented out)
+                      users = [user for user in data['users'] if not user['username'].startswith('#')]
+                      print(f"📋 Found {len(users)} enabled users to process")
                       print()
               except Exception as e:
                   print(f"❌ Error reading users.yaml: {e}")
