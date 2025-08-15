@@ -10,21 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       instance_ids:
-        description: 'Select EC2 instance ID from the dropdown'
+        description: 'Enter EC2 instance ID (e.g., i-1234567890abcdef0)'
         required: true
-        type: choice
-        options:
-          - i-0d2ea774d38f88fe2
-          - i-059108826eb667a3d
-          - i-03810d57b29eff7fa
-          - i-04f6cf69514fab8ec
-          - i-069c4707f66eee735
-          - i-038146dc9a729c973
-          - i-0ce61b84050ece568
-          - i-0079b3bcbc7b9c83e
-          - i-0a6b63f03c28c1336
-          - i-019d6e26b39617852
-          - i-00ca906185f13e772
+        type: string
       aws_account_id:
         description: 'AWS Account ID:'
         required: true
@@ -114,7 +102,7 @@ jobs:
         run: |
           echo "=== Getting EC2 Instance Details ==="
           
-          INSTANCE_ID="${{ github.event.inputs.instance_ids }}"
+          INSTANCE_ID="${{ inputs.instance_ids }}"
           REGION="${{ inputs.aws_region }}"
           
           # Get instance details
@@ -179,6 +167,12 @@ jobs:
           
           echo "Users found: $USERS"
           
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
           # Generate SSH keys for all users in multiple formats
           for user in $USERS; do
             echo "Generating keys for user: $user"
@@ -237,6 +231,12 @@ jobs:
           
           echo "📋 Processing users: $USERS"
           echo ""
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
           
           # Process each user - check existing keys first
           for user in $USERS; do
@@ -327,6 +327,12 @@ jobs:
               print(' '.join(users))
           ")
           
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
           # Install each user's public key using the script
           for user in $USERS; do
             if [ -f "/tmp/ssh_keys/${user}_public_key" ]; then
@@ -359,12 +365,6 @@ jobs:
           EC2_IP="${{ env.EC2_INSTANCE_IP }}"
           TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
           
-          echo "🔍 Verification Details:"
-          echo "- EC2 Instance IP: $EC2_IP"
-          echo "- Verification Timestamp: $TIMESTAMP"
-          echo "- Total Users to Verify: $(echo $USERS | wc -w)"
-          echo ""
-          
           # Read usernames from users.yaml dynamically
           USERS=$(python3 -c "
           import yaml
@@ -374,8 +374,20 @@ jobs:
               print(' '.join(users))
           ")
           
+          echo "🔍 Verification Details:"
+          echo "- EC2 Instance IP: $EC2_IP"
+          echo "- Verification Timestamp: $TIMESTAMP"
+          echo "- Total Users to Verify: $(echo $USERS | wc -w)"
+          echo ""
+          
           echo "📋 Users to verify: $USERS"
-            echo ""
+          echo ""
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
           
           # Test each user's SSH access with comprehensive verification
           for user in $USERS; do
@@ -481,7 +493,7 @@ jobs:
           
           # Create minimal terraform.tfvars for user provisioning
           # Note: instance_ids should be a list, not a string
-          INSTANCE_IDS="${{ github.event.inputs.instance_ids }}"
+          INSTANCE_IDS="${{ inputs.instance_ids }}"
           AWS_REGION="${{ inputs.aws_region }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
           
@@ -845,6 +857,21 @@ jobs:
           echo ""
           echo "🎉 USER PROVISIONING COMPLETED SUCCESSFULLY! 🎉"
           echo ""
+          # Read usernames from users.yaml dynamically
+          USERS=$(python3 -c "
+          import yaml
+          with open('users.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+              users = [user['username'] for user in data['users']]
+              print(' '.join(users))
+          ")
+          
+          # Check if any users were found
+          if [ -z "$USERS" ]; then
+            echo "❌ No users found in users.yaml"
+            exit 1
+          fi
+          
           echo "📋 Summary:"
           echo "- EC2 Instance: ${{ env.EC2_INSTANCE_ID }}"
           echo "- IP Address: ${{ env.EC2_INSTANCE_IP }} (${{ env.EC2_IP_TYPE }} IP)"
@@ -867,7 +894,7 @@ jobs:
             echo "📧 Email Delivery:"
             echo "- Each user received their SSH private key at their own email address"
             echo "- SMTP Server: mailhost.umb.com:25"
-            echo "- Keys delivered: 6 private keys with instructions"
+            echo "- Keys delivered: $(echo $USERS | wc -w) private keys with instructions"
             echo ""
           fi
           echo "🔑 Next Steps:"
