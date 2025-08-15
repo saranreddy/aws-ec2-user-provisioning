@@ -305,15 +305,59 @@ jobs:
           EC2_IP="${{ env.EC2_INSTANCE_IP }}"
           SSH_USER="ec2-user"
           
-          echo "Connecting to EC2 instance at $EC2_IP (${{ env.EC2_IP_TYPE }} IP)..."
+          echo "🔍 DEBUGGING INFORMATION:"
+          echo "=========================="
+          echo "EC2 Instance IP: $EC2_IP"
+          echo "IP Type: ${{ env.EC2_IP_TYPE }}"
+          echo "SSH User: $SSH_USER"
+          echo "SSH Key Path: ~/.ssh/ec2-provisioning-key"
+          echo "Current Directory: $(pwd)"
+          echo "SSH Key Permissions: $(ls -la ~/.ssh/ec2-provisioning-key 2>/dev/null || echo 'SSH key not found')"
+          echo "SSH Key Size: $(wc -c < ~/.ssh/ec2-provisioning-key 2>/dev/null || echo '0') bytes"
+          echo ""
           
-          # Test SSH connection first
-          if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
+          echo "🌐 NETWORK DIAGNOSTICS:"
+          echo "========================"
+          echo "GitHub Actions Runner IP: $(curl -s ifconfig.me 2>/dev/null || echo 'Unable to determine')"
+          echo "Ping test to EC2: $(ping -c 3 -W 5 $EC2_IP 2>&1 | tail -1 || echo 'Ping failed')"
+          echo "Telnet test to port 22: $(timeout 5 bash -c "</dev/tcp/$EC2_IP/22" && echo "Port 22 is reachable" || echo "Port 22 is NOT reachable")"
+          echo "Traceroute to EC2: $(traceroute -m 10 $EC2_IP 2>&1 | head -5 | tr '\n' ' ' || echo 'Traceroute failed')"
+          echo ""
+          
+          echo "🔑 SSH KEY VALIDATION:"
+          echo "======================="
+          echo "SSH key format check:"
+          ssh-keygen -l -f ~/.ssh/ec2-provisioning-key 2>&1 || echo "SSH key format validation failed"
+          echo ""
+          
+          echo "🔌 SSH CONNECTION TEST:"
+          echo "========================"
+          echo "Connecting to EC2 instance at $EC2_IP (${{ env.EC2_IP_TYPE }} IP)..."
+          echo "SSH command: ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP 'echo \"SSH connection successful\"'"
+          echo ""
+          
+          # Test SSH connection with verbose logging
+          if ssh -i ~/.ssh/ec2-provisioning-key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=DEBUG3 $SSH_USER@$EC2_IP "echo 'SSH connection successful'"; then
             echo "✅ SSH connection established"
           else
             echo "❌ Failed to establish SSH connection"
-              exit 1
-            fi
+            echo ""
+            echo "🔍 FAILURE ANALYSIS:"
+            echo "==================="
+            echo "SSH exit code: $?"
+            echo "Last SSH error: $?"
+            echo ""
+            echo "💡 TROUBLESHOOTING SUGGESTIONS:"
+            echo "==============================="
+            echo "1. Check if EC2 instance is running and accessible"
+            echo "2. Verify security group allows SSH (port 22) from GitHub Actions runner"
+            echo "3. Check if instance is in public subnet with internet access"
+            echo "4. Verify the SSH key is correct and has proper permissions"
+            echo "5. Check VPC route tables and network ACLs"
+            echo "6. Ensure the instance has a public IP if connecting from internet"
+            echo ""
+            exit 1
+          fi
           
           # Make the script executable
           chmod +x scripts/install_users.sh
