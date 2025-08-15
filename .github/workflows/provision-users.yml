@@ -161,17 +161,11 @@ jobs:
           mkdir -p /tmp/ssh_keys
           chmod 755 /tmp/ssh_keys
           
-          # Install puttygen for PuTTY key conversion
-          echo "Installing puttygen for key conversion..."
-          if command -v apt-get &> /dev/null; then
-            apt-get update && apt-get install -y putty-tools
-          elif command -v yum &> /dev/null; then
-            yum install -y putty
-          elif command -v brew &> /dev/null; then
-            brew install putty
-          else
-            echo "⚠️  puttygen not available, will generate basic formats only"
-          fi
+          # Note: puttygen installation requires sudo privileges which are not available in GitHub Actions
+          # We'll generate the basic formats and handle PuTTY conversion gracefully
+          echo "ℹ️  puttygen not available in GitHub Actions environment"
+          echo "ℹ️  Will generate RSA and PEM formats, PuTTY format will be skipped"
+          echo "ℹ️  Users can convert keys manually using PuTTYgen if needed"
           
           # Read usernames from users.yaml dynamically
           echo "Reading users from users.yaml..."
@@ -203,17 +197,10 @@ jobs:
               cp /tmp/ssh_keys/${user}_private_key /tmp/ssh_keys/${user}_universal.pem
               chmod 600 /tmp/ssh_keys/${user}_universal.pem
               
-              # Convert to PuTTY format (.ppk) if puttygen is available
-              if command -v puttygen &> /dev/null; then
-                echo "Converting to PuTTY format for $user..."
-                if puttygen /tmp/ssh_keys/${user}_private_key -o /tmp/ssh_keys/${user}_putty.ppk -O private; then
-                  echo "✅ PuTTY key generated for $user"
-                else
-                  echo "⚠️  Failed to generate PuTTY key for $user"
-                fi
-              else
-                echo "⚠️  puttygen not available, skipping PuTTY format for $user"
-              fi
+              # Note: PuTTY format (.ppk) cannot be generated in GitHub Actions environment
+              # Users will receive RSA and PEM formats and can convert manually if needed
+              echo "ℹ️  PuTTY format skipped - not available in GitHub Actions environment"
+              echo "ℹ️  Users can convert keys manually using PuTTYgen on their local machine"
               
               echo "✅ Generated keys for $user in multiple formats"
             else
@@ -267,9 +254,6 @@ jobs:
               if aws s3 ls s3://$BUCKET_NAME/keys/${user}_universal.pem 2>&1 > /dev/null; then
                 aws s3 cp s3://$BUCKET_NAME/keys/${user}_universal.pem /tmp/ssh_keys/${user}_universal.pem
               fi
-              if aws s3 ls s3://$BUCKET_NAME/keys/${user}_putty.ppk 2>&1 > /dev/null; then
-                aws s3 cp s3://$BUCKET_NAME/keys/${user}_putty.ppk /tmp/ssh_keys/${user}_putty.ppk
-              fi
               
               echo "📥 Downloaded existing keys for $user from S3"
               
@@ -283,10 +267,7 @@ jobs:
               aws s3 cp /tmp/ssh_keys/${user}_public_key s3://$BUCKET_NAME/keys/${user}_public_key --sse AES256
               aws s3 cp /tmp/ssh_keys/${user}_universal.pem s3://$BUCKET_NAME/keys/${user}_universal.pem --sse AES256
               
-              # Upload PuTTY format if it exists
-              if [ -f "/tmp/ssh_keys/${user}_putty.ppk" ]; then
-                aws s3 cp /tmp/ssh_keys/${user}_putty.ppk s3://$BUCKET_NAME/keys/${user}_putty.ppk --sse AES256
-              fi
+
               
               echo "📤 Uploaded all key formats for $user to S3"
               
@@ -597,21 +578,21 @@ jobs:
               email_body += f"- Instance ID: {instance_id}\n"
               email_body += f"- IP Address: {instance_ip}\n"
               email_body += f"- SSH Port: 22\n\n"
-              email_body += "🔑 MULTIPLE KEY FORMATS PROVIDED:\n"
-              email_body += "================================\n\n"
+              email_body += "🔑 KEY FORMATS PROVIDED:\n"
+              email_body += "========================\n\n"
               email_body += "1. {username}_private_key - Standard RSA private key (Linux/Mac/Windows OpenSSH)\n"
-              email_body += "2. {username}_universal.pem - PEM format (works with most SSH clients)\n"
-              email_body += "3. {username}_putty.ppk - PuTTY format (Windows PuTTY users)\n\n"
+              email_body += "2. {username}_universal.pem - PEM format (works with most SSH clients)\n\n"
+              email_body += "ℹ️  Note: PuTTY format (.ppk) not available - see conversion instructions below\n\n"
               email_body += "📋 WHICH KEY TO USE:\n"
               email_body += "===================\n\n"
-              email_body += "🖥️  WINDOWS USERS (Recommended: PuTTY):\n"
-              email_body += "   - Use: {username}_putty.ppk\n"
-              email_body += "   - Download PuTTY: https://www.putty.org/\n"
-              email_body += "   - Connection: Host: {instance_ip}, Port: 22, Username: {username}\n\n"
-              email_body += "🖥️  WINDOWS USERS (Alternative: OpenSSH):\n"
+              email_body += "🖥️  WINDOWS USERS (OpenSSH - Recommended):\n"
               email_body += "   - Use: {username}_universal.pem\n"
               email_body += "   - Windows 10/11 built-in SSH client\n"
               email_body += "   - Command: ssh -i {username}_universal.pem {username}@{instance_ip}\n\n"
+              email_body += "🖥️  WINDOWS USERS (PuTTY - Manual Conversion Required):\n"
+              email_body += "   - Download PuTTYgen: https://www.putty.org/\n"
+              email_body += "   - Convert {username}_universal.pem to .ppk format\n"
+              email_body += "   - See detailed conversion instructions below\n\n"
               email_body += "🐧 LINUX/MAC USERS:\n"
               email_body += "   - Use: {username}_private_key or {username}_universal.pem\n"
               email_body += "   - Command: ssh -i ~/.ssh/{username}_private_key {username}@{instance_ip}\n\n"
@@ -623,19 +604,17 @@ jobs:
               email_body += "- Each key is unique to your user account\n\n"
               email_body += "📖 DETAILED SETUP INSTRUCTIONS:\n"
               email_body += "================================\n\n"
-              email_body += "🖥️  WINDOWS SETUP (PuTTY - Recommended):\n"
-              email_body += "1. Download and install PuTTY from https://www.putty.org/\n"
-              email_body += "2. Open PuTTY\n"
-              email_body += "3. Enter Host Name: {instance_ip}\n"
-              email_body += "4. Set Port: 22\n"
-              email_body += "5. Go to Connection > SSH > Auth > Credentials\n"
-              email_body += "6. Browse and select: {username}_putty.ppk\n"
-              email_body += "7. Go back to Session, enter a name and save\n"
-              email_body += "8. Click Open and enter username: {username}\n\n"
-              email_body += "🖥️  WINDOWS SETUP (OpenSSH - Alternative):\n"
+              email_body += "🖥️  WINDOWS SETUP (OpenSSH - Recommended):\n"
               email_body += "1. Save {username}_universal.pem to C:\\Users\\{username}\\.ssh\\\n"
               email_body += "2. Open Command Prompt or PowerShell\n"
               email_body += "3. Run: ssh -i C:\\Users\\{username}\\.ssh\\{username}_universal.pem {username}@{instance_ip}\n\n"
+              email_body += "🖥️  WINDOWS SETUP (PuTTY - Manual Conversion Required):\n"
+              email_body += "1. Download PuTTYgen from https://www.putty.org/\n"
+              email_body += "2. Open PuTTYgen\n"
+              email_body += "3. Click 'Load' and select {username}_universal.pem\n"
+              email_body += "4. Click 'Save private key' to create {username}.ppk\n"
+              email_body += "5. Use the .ppk file with PuTTY as usual\n\n"
+
               email_body += "🐧 LINUX/MAC SETUP:\n"
               email_body += "1. Save {username}_private_key to ~/.ssh/\n"
               email_body += "2. Set permissions: chmod 600 ~/.ssh/{username}_private_key\n"
@@ -651,17 +630,17 @@ jobs:
               email_body += f"- Username: {username}\n"
               email_body += f"- Instance: {instance_name} ({instance_id})\n"
               email_body += f"- IP Address: {instance_ip}\n"
-              email_body += f"- PuTTY: Use {username}_putty.ppk file\n"
-              email_body += f"- OpenSSH: ssh -i {username}_universal.pem {username}@{instance_ip}\n"
+              email_body += f"- Windows OpenSSH: ssh -i {username}_universal.pem {username}@{instance_ip}\n"
+              email_body += f"- PuTTY: Convert {username}_universal.pem to .ppk using PuTTYgen\n"
               email_body += f"- Linux/Mac: ssh -i {username}_private_key {username}@{instance_ip}\n\n"
               email_body += "This is an automated message from the AWS EC2 User Provisioning System.\n"
               email_body += "If you have questions, contact your system administrator.\n\n"
-              email_body += "🎯 RECOMMENDATION: Windows users should use PuTTY with the .ppk file for the best experience."
+              email_body += "🎯 RECOMMENDATION: Windows users should use OpenSSH with the .pem file, or convert to PuTTY format manually if preferred."
               
               # Attach the email body
               msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
               
-              # Attach all three key formats
+              # Attach available key formats
               # 1. Standard RSA private key
               if os.path.exists(f'/tmp/ssh_keys/{username}_private_key'):
                   with open(f'/tmp/ssh_keys/{username}_private_key', 'r') as f:
@@ -677,14 +656,6 @@ jobs:
                   pem_attachment = MIMEApplication(pem_content.encode('utf-8'), _subtype='txt')
                   pem_attachment.add_header('Content-Disposition', 'attachment', filename=f'{username}_universal.pem')
                   msg.attach(pem_attachment)
-              
-              # 3. PuTTY format (.ppk)
-              if os.path.exists(f'/tmp/ssh_keys/{username}_putty.ppk'):
-                  with open(f'/tmp/ssh_keys/{username}_putty.ppk', 'r') as f:
-                      ppk_content = f.read()
-                  ppk_attachment = MIMEApplication(ppk_content.encode('utf-8'), _subtype='txt')
-                  ppk_attachment.add_header('Content-Disposition', 'attachment', filename=f'{username}_putty.ppk')
-                  msg.attach(ppk_attachment)
               
               try:
                   # Connect to SMTP server
