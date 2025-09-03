@@ -259,6 +259,40 @@ jobs:
           echo "PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
           echo "SCA_INSTALL_METHOD=$SCA_INSTALL_METHOD" >> $GITHUB_ENV
 
+      - name: Download Fortify Rulepacks
+        run: |
+          echo "=== Downloading Fortify Rulepacks ==="
+          
+          # Ensure PATH includes Fortify
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH:${{ env.FORTIFY_SCA_HOME }}/bin"
+          
+          cd ${{ env.FORTIFY_SCA_HOME }}/bin
+          
+          echo "🔧 Downloading Fortify rulepacks..."
+          echo "Current directory: $(pwd)"
+          echo "Available files:"
+          ls -la
+          
+          # Check if fortifyupdate exists
+          if [ -f "./fortifyupdate" ]; then
+            echo "✅ fortifyupdate found, executing..."
+            if ./fortifyupdate; then
+              echo "✅ Fortify rulepacks downloaded successfully"
+              RULEPACKS_DOWNLOADED="true"
+            else
+              echo "⚠️  Fortify rulepacks download failed, but continuing..."
+              RULEPACKS_DOWNLOADED="false"
+            fi
+          else
+            echo "❌ fortifyupdate not found in ${{ env.FORTIFY_SCA_HOME }}/bin"
+            echo "Available executables:"
+            ls -la | grep -E "\.(sh|cmd|exe)$" || echo "No executable files found"
+            RULEPACKS_DOWNLOADED="false"
+          fi
+          
+          echo "RULEPACKS_DOWNLOADED=$RULEPACKS_DOWNLOADED" >> $GITHUB_ENV
+          echo "✅ Fortify rulepacks download step completed"
+
       - name: Install Fortify Apps and Tools
         run: |
           echo "=== Installing Fortify Apps and Tools ==="
