@@ -1,4 +1,3 @@
-
 name: Fortify Security Scan
 
 on:
@@ -406,13 +405,20 @@ jobs:
             if sourceanalyzer -b fortify-scan -scan -f $SCAN_DIR/fortify-scan.fpr; then
               echo "✅ FPR report generated: $SCAN_DIR/fortify-scan.fpr"
               
-              # Generate HTML report
-              echo "📄 Generating HTML report..."
-              if ReportGenerator -format html -f $SCAN_DIR/fortify-scan.html -source $SCAN_DIR/fortify-scan.fpr; then
-                echo "✅ HTML report generated successfully: $SCAN_DIR/fortify-scan.html"
+              # Generate PDF report
+              echo "📄 Generating PDF report..."
+              if ReportGenerator -format pdf -f $SCAN_DIR/fortify-scan.pdf -source $SCAN_DIR/fortify-scan.fpr; then
+                echo "✅ PDF report generated successfully: $SCAN_DIR/fortify-scan.pdf"
               else
-                echo "⚠️  HTML report generation failed, but FPR is available"
+                echo "⚠️  PDF report generation failed, but FPR is available"
               fi
+              
+              # Display FPR report info on action runner screen
+              echo "📊 FPR Report Information:"
+              echo "   - File: $SCAN_DIR/fortify-scan.fpr"
+              echo "   - Size: $(ls -lh $SCAN_DIR/fortify-scan.fpr | awk '{print $5}')"
+              echo "   - Created: $(ls -la $SCAN_DIR/fortify-scan.fpr | awk '{print $6, $7, $8}')"
+              echo "   - Full path: $(realpath $SCAN_DIR/fortify-scan.fpr)"
             else
               echo "❌ FPR report generation failed"
               exit 1
@@ -456,13 +462,20 @@ jobs:
             if sourceanalyzer -b fortify-deps -scan -f $SCAN_DIR/fortify-deps.fpr; then
               echo "✅ FPR report generated: $SCAN_DIR/fortify-deps.fpr"
               
-              # Generate HTML report
-              echo "📄 Generating HTML report..."
-              if ReportGenerator -format html -f $SCAN_DIR/fortify-deps.html -source $SCAN_DIR/fortify-deps.fpr; then
-                echo "✅ HTML report generated successfully: $SCAN_DIR/fortify-deps.html"
+              # Generate PDF report
+              echo "📄 Generating PDF report..."
+              if ReportGenerator -format pdf -f $SCAN_DIR/fortify-deps.pdf -source $SCAN_DIR/fortify-deps.fpr; then
+                echo "✅ PDF report generated successfully: $SCAN_DIR/fortify-deps.pdf"
               else
-                echo "⚠️  HTML report generation failed, but FPR is available"
+                echo "⚠️  PDF report generation failed, but FPR is available"
               fi
+              
+              # Display FPR report info on action runner screen
+              echo "📊 FPR Report Information:"
+              echo "   - File: $SCAN_DIR/fortify-deps.fpr"
+              echo "   - Size: $(ls -lh $SCAN_DIR/fortify-deps.fpr | awk '{print $5}')"
+              echo "   - Created: $(ls -la $SCAN_DIR/fortify-deps.fpr | awk '{print $6, $7, $8}')"
+              echo "   - Full path: $(realpath $SCAN_DIR/fortify-deps.fpr)"
             else
               echo "❌ FPR report generation failed"
               exit 1
@@ -514,14 +527,21 @@ jobs:
             if sourceanalyzer -b fortify-full -scan -f $SCAN_DIR/fortify-full.fpr; then
               echo "✅ FPR report generated: $SCAN_DIR/fortify-full.fpr"
               
-              # Generate HTML report
-              echo "📄 Generating HTML report..."
-              if ReportGenerator -f $SCAN_DIR/fortify-full.html -source $SCAN_DIR/fortify-full.fpr; then
-                echo "✅ HTML report generated: $SCAN_DIR/fortify-full.html"
+              # Generate PDF report
+              echo "📄 Generating PDF report..."
+              if ReportGenerator -format pdf -f $SCAN_DIR/fortify-full.pdf -source $SCAN_DIR/fortify-full.fpr; then
+                echo "✅ PDF report generated: $SCAN_DIR/fortify-full.pdf"
               else
-                echo "❌ HTML report generation failed"
+                echo "❌ PDF report generation failed"
                 exit 1
               fi
+              
+              # Display FPR report info on action runner screen
+              echo "📊 FPR Report Information:"
+              echo "   - File: $SCAN_DIR/fortify-full.fpr"
+              echo "   - Size: $(ls -lh $SCAN_DIR/fortify-full.fpr | awk '{print $5}')"
+              echo "   - Created: $(ls -la $SCAN_DIR/fortify-full.fpr | awk '{print $6, $7, $8}')"
+              echo "   - Full path: $(realpath $SCAN_DIR/fortify-full.fpr)"
             else
               echo "❌ FPR report generation failed"
               exit 1
@@ -534,6 +554,9 @@ jobs:
       - name: Upload Scan Results to S3
         run: |
           echo "=== Uploading Scan Results to S3 ==="
+          
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
           S3_BUCKET="${{ inputs.s3_bucket }}"
           SCAN_DIR="${{ env.FORTIFY_HOME }}/scan-results"
