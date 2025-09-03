@@ -46,7 +46,7 @@ env:
 jobs:
   fortify-scan:
     name: Fortify Security Scan
-    runs-on: docker
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
