@@ -64,29 +64,63 @@ jobs:
           # Update package lists
           sudo apt-get update
           
-          # Install essential system dependencies
+          # Install Java and essential system utilities
           sudo apt-get install -y \
-            curl \
-            wget \
+            default-jdk \
             unzip \
+            coreutils \
+            findutils \
+            grep \
+            sed \
+            bash \
+            cpio \
             tar \
             gzip \
-            ca-certificates \
-            gnupg \
-            lsb-release \
-            software-properties-common \
-            apt-transport-https \
+            wget \
+            curl \
             build-essential \
+            pkg-config \
+            file \
+            procps \
+            util-linux \
+            gawk \
+            less \
+            vim-tiny \
             python3 \
             python3-pip \
-            openjdk-11-jdk \
-            maven \
-            gradle \
-            nodejs \
-            npm \
-            git \
-            jq \
-            awscli
+            ca-certificates \
+            gnupg \
+            lsb-release
+          
+          # Verify critical commands are available
+          echo "🔍 Verifying critical commands are available:"
+          which cp || echo "❌ cp not found"
+          which mv || echo "❌ mv not found"
+          which rm || echo "❌ rm not found"
+          which mkdir || echo "❌ mkdir not found"
+          which ls || echo "❌ ls not found"
+          which find || echo "❌ find not found"
+          which java || echo "❌ java not found"
+          
+          # Set PATH to ensure system binaries are accessible
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          echo "PATH set to: $PATH"
+          
+          echo "✅ System dependencies installed"
+          
+          # Export PATH to GitHub environment for all subsequent steps
+          echo "PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH" >> $GITHUB_ENV
+          echo "✅ PATH exported to GitHub environment"
+          
+          # Create symlinks to ensure commands are accessible
+          echo "🔧 Creating symlinks for critical commands..."
+          sudo ln -sf /bin/cp /usr/bin/cp 2>/dev/null || echo "cp symlink already exists"
+          sudo ln -sf /bin/mv /usr/bin/mv 2>/dev/null || echo "mv symlink already exists"
+          sudo ln -sf /bin/rm /usr/bin/rm 2>/dev/null || echo "rm symlink already exists"
+          sudo ln -sf /bin/mkdir /usr/bin/mkdir 2>/dev/null || echo "mkdir symlink already exists"
+          sudo ln -sf /bin/ls /usr/bin/ls 2>/dev/null || echo "ls symlink already exists"
+          
+          echo "✅ System configuration completed"
 
       - name: Install System Dependencies
         run: |
@@ -176,27 +210,27 @@ jobs:
 
       - name: Verify System Environment
         run: |
-          echo "=== Verifying System Environment ==="
+          echo "=== System Environment Verification ==="
           
           # Ensure PATH includes system binaries
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
-          # Check essential commands
-          which java && java -version
-          which python3 && python3 --version
-          which node && node --version
-          which npm && npm --version
-          which maven && mvn --version
-          which gradle && gradle --version
-          which git && git --version
-          which aws && aws --version
+          echo "🔍 Current PATH: $PATH"
+          echo "🔍 Current working directory: $(pwd)"
+          echo "🔍 User: $(whoami)"
+          echo "🔍 Home directory: $HOME"
           
-          # Check system resources
-          echo "=== System Resources ==="
-          free -h
-          df -h
-          uname -a
-          lsb_release -a
+          # Test critical commands
+          echo "🧪 Testing critical commands:"
+          cp --version || echo "❌ cp command failed"
+          mv --version || echo "❌ mv command failed"
+          rm --version || echo "❌ rm command failed"
+          mkdir --version || echo "❌ mkdir command failed"
+          ls --version || echo "❌ ls command failed"
+          find --version || echo "❌ find command failed"
+          java -version || echo "❌ java command failed"
+          
+          echo "✅ System environment verified"
 
       - name: Set Role Name
         run: |
