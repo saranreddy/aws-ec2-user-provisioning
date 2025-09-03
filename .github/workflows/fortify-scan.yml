@@ -57,12 +57,15 @@ jobs:
       - name: Setup System Environment
         run: |
           echo "=== Setting up System Environment ==="
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "✅ System environment configured"
           
           # Update package lists
-          apt-get update
+          sudo apt-get update
           
           # Install essential system dependencies
-          apt-get install -y \
+          sudo apt-get install -y \
             curl \
             wget \
             unzip \
@@ -89,8 +92,11 @@ jobs:
         run: |
           echo "=== Installing Additional System Dependencies ==="
           
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           # Install additional tools
-          apt-get install -y \
+          sudo apt-get install -y \
             tree \
             htop \
             vim \
@@ -172,6 +178,9 @@ jobs:
         run: |
           echo "=== Verifying System Environment ==="
           
+          # Ensure PATH includes system binaries
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           # Check essential commands
           which java && java -version
           which python3 && python3 --version
@@ -191,29 +200,28 @@ jobs:
 
       - name: Set Role Name
         run: |
-          echo "=== Setting AWS Role Name ==="
+          if [ -z "${{ secrets.aws_ec2_creation_role }}" ]; then
+            echo "❌ Required secret 'aws_ec2_creation_role' is not set"
+            exit 1
+          fi
           
-          # Set the role name for AWS authentication
-          ROLE_NAME="GitHubActions-FortifyScan-Role"
-          echo "ROLE_NAME=$ROLE_NAME" >> $GITHUB_ENV
-          echo "✅ Role name set: $ROLE_NAME"
+          echo 'AuthRole=arn:aws:iam::${{ inputs.aws_account_id }}:role/${{ secrets.aws_ec2_creation_role }}' >> $GITHUB_ENV
+          echo "Using role ARN: ${{ env.AuthRole }}"
 
       - name: Configure AWS Credentials
-        run: |
-          echo "=== Configuring AWS Credentials ==="
-          
-          # Configure AWS credentials using OIDC
-          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws configure set default.region ${{ inputs.aws_region }}
-          
-          echo "✅ AWS credentials configured"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AuthRole }}
+          role-duration-seconds: 3600
+          aws-region: ${{ inputs.aws_region }}
 
       - name: Verify AWS Credentials
         run: |
           echo "=== Verifying AWS Credentials ==="
           
-          # Test AWS credentials
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           aws sts get-caller-identity
           echo "✅ AWS credentials verified"
 
@@ -221,64 +229,112 @@ jobs:
         run: |
           echo "=== Creating Fortify Installation Directory ==="
           
-          # Create Fortify installation directory
-          mkdir -p ${{ env.FORTIFY_HOME }}
-          mkdir -p ${{ env.FORTIFY_SCA_HOME }}
-          mkdir -p ${{ env.FORTIFY_HOME }}/fortify-apps
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
           
-          echo "✅ Fortify installation directories created"
+          sudo mkdir -p ${{ env.FORTIFY_HOME }}
+          sudo chown $USER:$USER ${{ env.FORTIFY_HOME }}
+          chmod 755 ${{ env.FORTIFY_HOME }}
+          
+          # Verify commands are accessible
+          which mkdir && which chown && which chmod
+          
+          echo "✅ Fortify directory created: ${{ env.FORTIFY_HOME }}"
 
       - name: Download Fortify Installation Files from S3
         run: |
           echo "=== Downloading Fortify Installation Files from S3 ==="
           
-          # Set S3 paths
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           S3_BUCKET="${{ inputs.s3_bucket }}"
-          S3_PATH="fortify/${{ inputs.fortify_version }}"
+          FORTIFY_VERSION="${{ inputs.fortify_version }}"
           
-          echo "📥 Downloading Fortify SCA..."
-          aws s3 cp "s3://$S3_BUCKET/$S3_PATH/Fortify_SCA_${{ inputs.fortify_version }}_Linux_x64.tar.gz" ${{ env.FORTIFY_HOME }}/
+          echo "Downloading from S3 bucket: $S3_BUCKET"
+          echo "Fortify version: $FORTIFY_VERSION"
           
-          echo "📥 Downloading Fortify Apps & Tools..."
-          aws s3 cp "s3://$S3_BUCKET/$S3_PATH/Fortify_Apps_and_Tools_${{ inputs.fortify_version }}_Linux_x64.tar.gz" ${{ env.FORTIFY_HOME }}/
+          # Verify AWS CLI is accessible (configured by aws-actions/configure-aws-credentials)
+          which aws
           
-          echo "✅ Fortify installation files downloaded"
+          # Download Fortify SCA installer
+          echo "📥 Downloading Fortify SCA installer..."
+          aws s3 cp s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/Fortify_SCA_$FORTIFY_VERSION\_linux_x64.run ${{ env.FORTIFY_HOME }}/
+          
+          # Download Fortify Apps and Tools installer
+          echo "📥 Downloading Fortify Apps and Tools installer..."
+          aws s3 cp s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/Fortify_Apps_and_Tools_$FORTIFY_VERSION\_linux_x64.run ${{ env.FORTIFY_HOME }}/
+          
+          # Download license file
+          echo "📥 Downloading Fortify license..."
+          aws s3 cp "s3://$S3_BUCKET/fortify/$FORTIFY_VERSION/components/fortify-license" ${{ env.FORTIFY_HOME }}/fortify.license
+          
+          # Make installer executable
+          chmod +x ${{ env.FORTIFY_HOME }}/*.run
+          
+          echo "✅ All Fortify files downloaded from S3"
+          ls -la ${{ env.FORTIFY_HOME }}/
 
       - name: Install Fortify SCA
         run: |
           echo "=== Installing Fortify SCA ==="
           
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           cd ${{ env.FORTIFY_HOME }}
           
-          # Extract Fortify SCA
-          tar -xzf "Fortify_SCA_${{ inputs.fortify_version }}_Linux_x64.tar.gz"
+          # Install Fortify SCA with fallback strategies
+          echo "🔧 Installing Fortify SCA..."
           
-          # Move to installation directory
-          mv "Fortify_SCA_${{ inputs.fortify_version }}_Linux_x64"/* ${{ env.FORTIFY_SCA_HOME }}/
+          # Method 1: Try with installdir
+          if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
+            echo "✅ Fortify SCA installed successfully with installdir"
+            SCA_INSTALL_METHOD="installdir"
+          else
+            echo "⚠️  installdir failed, trying without directory specification..."
+            # Method 2: Try without directory specification (install to default location)
+            if ./Fortify_SCA_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended; then
+              echo "✅ Fortify SCA installed successfully to default location"
+              # Update the SCA home to default location
+              echo "FORTIFY_SCA_HOME=/opt/fortify/fortify-sca" >> $GITHUB_ENV
+              SCA_INSTALL_METHOD="default_location"
+            else
+              echo "❌ Fortify SCA installation failed"
+              exit 1
+            fi
+          fi
           
           # Set environment variables
           echo "FORTIFY_SCA_HOME=${{ env.FORTIFY_SCA_HOME }}" >> $GITHUB_ENV
-          echo "PATH=$PATH:${{ env.FORTIFY_SCA_HOME }}/bin" >> $GITHUB_ENV
-          
-          echo "✅ Fortify SCA installed successfully"
+          echo "PATH=\$PATH:\$FORTIFY_SCA_HOME/bin" >> $GITHUB_ENV
+          echo "SCA_INSTALL_METHOD=$SCA_INSTALL_METHOD" >> $GITHUB_ENV
 
       - name: Install Fortify Apps and Tools
         run: |
           echo "=== Installing Fortify Apps and Tools ==="
           
+          # Ensure PATH is available
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:$PATH"
+          
           cd ${{ env.FORTIFY_HOME }}
           
-          # Extract Fortify Apps & Tools
-          tar -xzf "Fortify_Apps_and_Tools_${{ inputs.fortify_version }}_Linux_x64.tar.gz"
+          echo "🔧 Installing Fortify Apps and Tools..."
           
-          # Move to installation directory
-          mv "Fortify_Apps_and_Tools_${{ inputs.fortify_version }}_Linux_x64"/* ${{ env.FORTIFY_HOME }}/fortify-apps/
+          # Install Fortify Apps and Tools to the same directory
+          if ./Fortify_Apps_and_Tools_${{ env.FORTIFY_VERSION }}_linux_x64.run --mode unattended --installdir ${{ env.FORTIFY_SCA_HOME }}; then
+            echo "✅ Fortify Apps and Tools installed successfully"
+            APPS_TOOLS_INSTALLED="true"
+          else
+            echo "⚠️  Apps and Tools installation failed, but continuing with SCA..."
+            echo "Note: Reporting tools may not be available"
+            APPS_TOOLS_INSTALLED="false"
+          fi
           
           # Set environment variables
-          echo "FORTIFY_APPS_HOME=${{ env.FORTIFY_HOME }}/fortify-apps" >> $GITHUB_ENV
-          echo "PATH=$PATH:${{ env.FORTIFY_HOME }}/fortify-apps/bin" >> $GITHUB_ENV
-          
-          echo "✅ Fortify Apps and Tools installed successfully"
+          echo "FORTIFY_APPS_HOME=${{ env.FORTIFY_APPS_HOME }}" >> $GITHUB_ENV
+          echo "PATH=\$PATH:\$FORTIFY_APPS_HOME/bin" >> $GITHUB_ENV
+          echo "APPS_TOOLS_INSTALLED=$APPS_TOOLS_INSTALLED" >> $GITHUB_ENV
 
       - name: Verify Fortify Installation
         run: |
